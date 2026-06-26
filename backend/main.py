@@ -24,15 +24,22 @@ app.add_middleware(
 )
 
 # ── Request Models ────────────────────────────────────────────────────────────
+
 class AnalysisRequest(BaseModel):
     text: str
+
 
 class OSINTRequest(BaseModel):
     url: str
 
+
 class FullScanRequest(BaseModel):
     text: str
     run_osint: bool = True
+
+
+class EmailRequest(BaseModel):
+    raw_email: str
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/")
@@ -207,9 +214,7 @@ Extracted Content:
 
     except Exception as e:
         raise HTTPException(500, f"Forensics analysis failed: {str(e)}")
-    
-    class EmailRequest(BaseModel):
-        raw_email: str
+
 
 @app.post("/analyze/email")
 async def analyze_email(request: EmailRequest):

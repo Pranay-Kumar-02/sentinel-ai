@@ -8,3 +8,8 @@ createRoot(document.getElementById('root')).render(
     <App />
   </StrictMode>,
 )
+import { ThemeProvider } from './context/ThemeContext'
+
+<ThemeProvider>
+  <App />
+</ThemeProvider>

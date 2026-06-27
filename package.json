@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@react-spring/web": "^10.1.2",
+    "axios": "^1.18.1",
+    "framer-motion": "^12.42.0",
+    "lucide-react": "^1.21.0",
+    "react-hot-toast": "^2.6.0",
+    "react-use-measure": "^2.1.7",
+    "simplex-noise": "^4.0.3",
+    "zustand": "^5.0.14"
+  }
+}

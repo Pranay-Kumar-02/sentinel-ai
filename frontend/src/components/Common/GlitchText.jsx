@@ -50,10 +50,12 @@ export default function GlitchText({
                 fontSize,
                 fontWeight,
                 color: textColor,
-                background: gradient ? gradients.accent : "none",
+                display: gradient ? "inline-block" : "inline",
+                background: gradient ? "var(--gradient-accent)" : "none",
                 WebkitBackgroundClip: gradient ? "text" : "unset",
                 WebkitTextFillColor: gradient ? "transparent" : textColor,
                 backgroundClip: gradient ? "text" : "unset",
+                color: gradient ? "transparent" : textColor,
                 textShadow: (!gradient && glow)
                     ? `0 0 20px ${colors.accentGlow}, 0 0 40px ${colors.accentSoft}`
                     : "none",

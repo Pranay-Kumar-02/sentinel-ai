@@ -117,10 +117,12 @@ export default function LoadingSequence({ onComplete, minDuration = 2400 }) {
                                 letterSpacing: "0.15em",
                                 textTransform: "uppercase",
                                 textAlign: "center",
-                                background: gradients.accent,
+                                display: "inline-block",
+                                background: "var(--gradient-accent)",
                                 WebkitBackgroundClip: "text",
                                 WebkitTextFillColor: "transparent",
                                 backgroundClip: "text",
+                                color: "transparent",
                             }}
                         >
                             Sentinel AI

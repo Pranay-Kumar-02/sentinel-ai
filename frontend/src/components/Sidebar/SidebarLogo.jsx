@@ -64,10 +64,12 @@ export default function SidebarLogo({ collapsed = false, onClick }) {
                             fontWeight: 700,
                             letterSpacing: "0.1em",
                             textTransform: "uppercase",
-                            background: gradients.accent,
+                            display: "inline-block",
+                            background: "var(--gradient-accent)",
                             WebkitBackgroundClip: "text",
                             WebkitTextFillColor: "transparent",
                             backgroundClip: "text",
+                            color: "transparent",
                             lineHeight: 1.1,
                         }}>
                             Sentinel

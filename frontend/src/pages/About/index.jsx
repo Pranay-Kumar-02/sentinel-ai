@@ -73,10 +73,12 @@ export default function About({ onNavigate }) {
                     margin: "0 0 14px",
                 }}>
                     India's CrowdStrike — <span style={{
-                        background: gradients.accent,
+                        display: "inline-block",
+                        background: "var(--gradient-accent)",
                         WebkitBackgroundClip: "text",
                         WebkitTextFillColor: "transparent",
                         backgroundClip: "text",
+                        color: "transparent",
                     }}>For Everyone.</span>
                 </h1>
 

@@ -100,10 +100,13 @@ export default function HeroSection({ onNavigate }) {
                             Cyber Threat
                             <br />
                             <span style={{
-                                background: gradients.accent,
+                                display: "inline-block",
+                                background: "var(--gradient-accent)",
                                 WebkitBackgroundClip: "text",
                                 WebkitTextFillColor: "transparent",
                                 backgroundClip: "text",
+                                color: "transparent",
+                                paddingRight: "0.05em", // prevents clipping of italic/descenders
                             }}>
                                 Intelligence,
                             </span>

@@ -10,7 +10,7 @@ import { normalizeVerdict } from "../../utils/riskCalculator";
 import { verdictSentence, formatRiskScore } from "../../utils/formatters";
 import ThreatOrb from "./ThreatOrb";
 import ConfidenceRing from "./ConfidenceRing";
-import { Bar } from "../Common/Badge";
+import { Bar } from "../Common/Tooltip";
 
 const VERDICT_META = {
     SAFE: { label: "SAFE", icon: "✅", desc: "No threats detected." },

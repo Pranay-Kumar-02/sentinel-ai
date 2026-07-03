@@ -1,16 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — App.jsx (v2.1 — FIXED)
-// Fixes:
-//   1. Sidebar navigation — Suspense was outside AnimatePresence causing
-//      lazy page components to suspend during exit animation → blank screen.
-//      Fix: each page gets its own Suspense boundary INSIDE AnimatePresence.
-//   2. Gradient text block — all gradient text now uses CSS vars + display:
+// SENTINEL AI — App.jsx (v2.2 — FIXED)
+// Fixes in this version:
+//   1. Sidebar navigation → black screen (70% of pages):
+//      PageRenderer's `pageProps` map only assigned props to 3 of 10 routes
+//      ("/", "/scanner", "/about"). The other 7 pages received an empty {}
+//      props object. Any of those pages calling a prop function that was
+//      undefined (e.g. onVerdict, onNavigate) threw a render error. With no
+//      Error Boundary anywhere in the tree, React silently unmounted the
+//      whole app → black screen, no console message.
+//      Fix: every route now receives the full, consistent prop set
+//      (onNavigate, onOpenCopilot, onVerdict). Extra unused props are
+//      harmless — pages that don't need them simply ignore them.
+//   2. Added a proper ErrorBoundary wrapping each page's Suspense boundary.
+//      If a page still throws for any reason, you now get a visible fallback
+//      panel with the actual error message + a "back to Command Center"
+//      action, instead of a silent black screen. This makes any future page
+//      bug immediately diagnosable from the UI itself.
+//   3. Sidebar navigation — Suspense stays INSIDE AnimatePresence (per-page
+//      Suspense boundary) so lazy page components never suspend during the
+//      exit animation.
+//   4. Gradient text block — gradient text uses CSS vars + display:
 //      inline-block + color:transparent instead of JS gradient strings.
-//   3. Cursor in sidebar — cursor:none on body was being blocked by sidebar's
-//      pointer-events. Fixed by ensuring cursor:none applies globally via CSS.
+//   5. Cursor in sidebar — cursor:none applied globally via injected CSS so
+//      the sidebar's pointer-events can't block the custom cursor.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense, lazy, Component } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
 // ── Providers ──────────────────────────────────────────────────────────────────
@@ -112,24 +127,110 @@ function PageLoader() {
   );
 }
 
-// ── PageRenderer — each page in its own Suspense so lazy loading never
-//    conflicts with AnimatePresence exit animations ────────────────────────────
-function PageRenderer({ path, navigate, onOpenCopilot, onVerdict }) {
-  const pageProps = {
-    "/": { onNavigate: navigate, onOpenCopilot, onVerdict },
-    "/scanner": { onVerdict },
-    "/about": { onNavigate: navigate },
-  };
+// ── ErrorBoundary — catches render errors in any page and shows a visible
+//    fallback instead of letting React silently unmount to a black screen.
+//    Keyed by `resetKey` (the current path) so navigating away/back clears
+//    the error state automatically. ────────────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
 
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    // eslint-disable-next-line no-console
+    console.error("[Sentinel] Page crashed:", error, info?.componentStack);
+  }
+
+  componentDidUpdate(prevProps) {
+    // Reset error state whenever the route changes so the boundary doesn't
+    // stay "stuck" after the user navigates elsewhere and back.
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+          padding: 24,
+          textAlign: "center",
+        }}>
+          <span style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.7rem",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "#ff5c5c",
+          }}>
+            Module failed to render
+          </span>
+          <span style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.65rem",
+            opacity: 0.7,
+            maxWidth: 480,
+            wordBreak: "break-word",
+          }}>
+            {String(this.state.error?.message ?? this.state.error ?? "Unknown error")}
+          </span>
+          <button
+            onClick={() => window.__sentinelNavigate?.("/")}
+            style={{
+              marginTop: 8,
+              padding: "8px 18px",
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.65rem",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              background: "transparent",
+              border: "1px solid currentColor",
+              borderRadius: 6,
+              cursor: "pointer",
+              opacity: 0.85,
+            }}
+          >
+            Back to Command Center
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// ── PageRenderer — every route gets the full, consistent prop set. Pages
+//    that don't use a given prop simply ignore it — this is what fixed the
+//    black-screen bug, since 7 of 10 routes previously received {} and
+//    crashed if they called an undefined prop function. ─────────────────────────
+function PageRenderer({ path, navigate, onOpenCopilot, onVerdict }) {
   const Component = ROUTES[path];
   if (!Component) return null;
 
-  const props = pageProps[path] ?? {};
+  const commonProps = {
+    onNavigate: navigate,
+    onOpenCopilot,
+    onVerdict,
+  };
 
   return (
-    <Suspense fallback={<PageLoader />}>
-      <Component {...props} />
-    </Suspense>
+    <ErrorBoundary resetKey={path}>
+      <Suspense fallback={<PageLoader />}>
+        <Component {...commonProps} />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -153,6 +254,7 @@ function AppShell() {
   }, []);
 
   // Expose globally for components that can't receive navigate as prop
+  // (also used by ErrorBoundary's "Back to Command Center" button)
   useEffect(() => {
     window.__sentinelNavigate = navigate;
     return () => { delete window.__sentinelNavigate; };
@@ -232,9 +334,9 @@ function AppShell() {
         style={{ position: "relative", zIndex: 1, minHeight: "100vh" }}
       >
         {/*
-                  KEY FIX: Suspense is INSIDE AnimatePresence child, not outside.
+                  Suspense is INSIDE AnimatePresence child, not outside.
                   This prevents lazy() suspending during exit animation → blank page.
-                  Each path renders its own Suspense boundary via PageRenderer.
+                  Each path renders its own Suspense + ErrorBoundary via PageRenderer.
                 */}
         <AnimatePresence mode="wait">
           <motion.div

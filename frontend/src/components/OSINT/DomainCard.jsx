@@ -5,7 +5,8 @@
 
 import { motion } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
-import { formatDomainAge, formatRegistrar, formatDate } from "../../utils/formatters";
+import { formatDomainAge, formatRegistrar } from "../../utils/formatters";
+import { formatDate } from "../../utils/helpers";
 import { Badge } from "../Common/Badge";
 
 export default function DomainCard({ whois = {}, domain = "" }) {

@@ -9,7 +9,7 @@ import { useTheme } from "../../hooks/useTheme";
 import OSINTResults from "../../components/OSINT/OSINTResults";
 import ConfidenceRing from "../../components/VerdictDisplay/ConfidenceRing";
 import { Badge } from "../../components/Common/Badge";
-import { scoreToColor } from "../../utils/colorUtils";
+import { scoreToColor } from "../../utils/riskCalculator";
 import { extractDomain } from "../../utils/helpers";
 
 export default function DomainReport({ result, query }) {

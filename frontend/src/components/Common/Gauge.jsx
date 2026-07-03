@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { motion, useInView } from "framer-motion";
 import { useRef } from "react";
 import { useTheme } from "../../hooks/useTheme";
-import { scoreToColor } from "../../utils/colorUtils";
+import { scoreToColor } from "../../utils/riskCalculator";
 
 export default function Gauge({
     value = 0,      // 0–100

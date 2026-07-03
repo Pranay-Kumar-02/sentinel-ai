@@ -8,7 +8,8 @@ import { useRef } from "react";
 import { motion } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useThreatFeed } from "../../hooks/useThreatFeed";
-import { truncate, countryFlag } from "../../utils/helpers";
+import { truncate } from "../../utils/helpers";
+import { countryFlag } from "../../utils/formatters";
 
 const SEVERITY_COLORS = {
     CRITICAL: "red",

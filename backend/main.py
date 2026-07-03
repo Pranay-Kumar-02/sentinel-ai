@@ -5,6 +5,7 @@ from core.analyzer import full_analysis
 from engines.osint import run_osint
 from engines.forensics import run_forensics
 from engines.email_forensics import analyze_email_headers
+from engines.threat_feed import fetch_recent_threats
 import uvicorn
 
 # ── App Setup ─────────────────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ async def root():
             "QR Code Decoder",
             "PDF Analyzer",
             "DOCX Analyzer",
+            "Live Threat Feed (URLhaus)",
         ],
     }
 
@@ -299,6 +301,22 @@ Analyze this email for threats, phishing, BEC, spoofing, or malicious intent.
         }
     except Exception as e:
         raise HTTPException(500, f"Email analysis failed: {str(e)}")
+
+
+@app.get("/threat-feed/live")
+async def threat_feed_live(limit: int = 30):
+    """
+    Phase 5 — Real Live Threat Feed.
+    Returns real malicious URLs recently reported to URLhaus (abuse.ch),
+    transformed into Sentinel's threat item format. Cached for 5 minutes
+    to respect URLhaus's fair-use rate limit — replaces the old frontend
+    random-data simulator entirely.
+    """
+    try:
+        items = await fetch_recent_threats(limit=limit)
+        return {"items": items, "count": len(items), "source": "URLhaus (abuse.ch)"}
+    except Exception as e:
+        raise HTTPException(500, f"Threat feed fetch failed: {str(e)}")
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

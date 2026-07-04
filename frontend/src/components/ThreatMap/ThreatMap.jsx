@@ -103,9 +103,9 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
         try {
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(width, height),
-                0.85,  // strength
-                0.45,  // radius
-                0.15   // threshold — only genuinely bright pixels (lights, arcs, points) bloom
+                0.55,  // strength — reduced so it accents, doesn't wash out
+                0.3,   // radius
+                0.32   // threshold — raised so only genuine hotspots (arcs, points, city lights) bloom, not the whole atmosphere shell
             );
             globeEl.current.postProcessingComposer().addPass(bloomPass);
             bloomAddedRef.current = true;
@@ -227,7 +227,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     bumpImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
                     showAtmosphere
                     atmosphereColor={colors.accent}
-                    atmosphereAltitude={0.26}
+                    atmosphereAltitude={0.13}
                     // Points — real threats at real coordinates
                     pointsData={points}
                     pointLat="lat"

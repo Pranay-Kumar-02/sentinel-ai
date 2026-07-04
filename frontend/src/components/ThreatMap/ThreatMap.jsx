@@ -1,25 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — ThreatMap (v3 — VISUAL OVERHAUL)
-// v2 was functionally correct but visually flat — thin plain arcs, no glow,
-// no ambient motion. v3 adds real visual depth using safe, reliable techniques
-// (no WebGL post-processing/shader passes — those have a documented history
-// of breaking across three.js versions, so genuine bloom is left as an
-// optional future step rather than risked here):
-//   - Dual-layer arcs: a soft wide translucent "glow" arc drawn behind a
-//     crisp bright "core" arc for each threat — fakes a glow without touching
-//     shaders.
-//   - Comet-style dash timing (short dash, fast animate) so arcs read as a
-//     quick shooting streak instead of a slow dashed line.
-//   - Persistent ambient beacon rings at every active threat location, not
-//     just on arc arrival — makes the globe feel alive even between polls.
-//   - A permanent glowing halo at Sentinel Command (India) marking it as
-//     the fixed "home base" all arcs fly toward.
-//   - Camera framed on the Asia/India region by default instead of open
-//     ocean, with slightly faster auto-rotate for more energy.
+// SENTINEL AI — ThreatMap (v4 — STARFIELD + CINEMATIC + REAL BLOOM)
+// v3 added fake glow via duplicate arcs. v4 goes further:
+//   - Real starfield background (official three-globe asset) instead of flat
+//     black void — the single biggest "this looks like a toy" fix.
+//   - Slow cinematic camera drift — periodically eases to a nearby vantage
+//     point instead of pure mechanical rotation, feels intentional/directed.
+//   - GENUINE bloom lighting (UnrealBloomPass) — makes city lights, arcs, and
+//     points actually glow via real post-processing, not a CSS trick. This
+//     is wrapped in try/catch and only added once: if it fails to compile on
+//     a given GPU/three.js combination, it fails silently and you keep the
+//     fully working non-bloom globe instead of a broken page. Since bloom now
+//     provides real glow, the old fake dual-arc trick is dropped — one arc
+//     per threat, cleaner and lets bloom do the glowing.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Globe from "react-globe.gl";
+import * as THREE from "three";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useThreatFeed } from "../../hooks/useThreatFeed";
@@ -46,6 +44,15 @@ const SEVERITY_RGB = {
 
 const SEVERITY_ORDER = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
 
+// Cinematic camera waypoints — the globe eases between these every few
+// seconds instead of only spinning mechanically on one axis.
+const CAMERA_WAYPOINTS = [
+    { lat: 14, lng: 60, altitude: 1.7 },
+    { lat: 28, lng: 90, altitude: 1.85 },
+    { lat: 5, lng: 30, altitude: 1.75 },
+    { lat: 20, lng: 110, altitude: 1.8 },
+];
+
 export default function ThreatMap({ height = 480, maxNodes = 40 }) {
     const { colors } = useTheme();
     const { feed } = useThreatFeed({ maxItems: maxNodes, intervalMs: 20000 });
@@ -53,6 +60,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
     const containerRef = useRef(null);
     const globeEl = useRef(null);
     const seenArcIdsRef = useRef(new Set());
+    const bloomAddedRef = useRef(false);
 
     const [width, setWidth] = useState(0);
     const [hovered, setHovered] = useState(null);
@@ -70,15 +78,43 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
         return () => observer.disconnect();
     }, []);
 
-    // ── Auto-rotate + initial camera framed on Asia/India ───────────────
+    // ── Auto-rotate (base) + cinematic drift between waypoints ───────────
     useEffect(() => {
         if (!globeEl.current) return;
         const controls = globeEl.current.controls();
         controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.6;
+        controls.autoRotateSpeed = 0.35;
         controls.enableZoom = true;
-        globeEl.current.pointOfView({ lat: 14, lng: 60, altitude: 1.9 }, 0);
+
+        globeEl.current.pointOfView(CAMERA_WAYPOINTS[0], 0);
+
+        let i = 0;
+        const drift = setInterval(() => {
+            i = (i + 1) % CAMERA_WAYPOINTS.length;
+            globeEl.current?.pointOfView(CAMERA_WAYPOINTS[i], 3200);
+        }, 9000);
+
+        return () => clearInterval(drift);
     }, []);
+
+    // ── Genuine bloom — defensive: silently skipped if it fails to compile ──
+    useEffect(() => {
+        if (!globeEl.current || width === 0 || bloomAddedRef.current) return;
+        try {
+            const bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(width, height),
+                0.85,  // strength
+                0.45,  // radius
+                0.15   // threshold — only genuinely bright pixels (lights, arcs, points) bloom
+            );
+            globeEl.current.postProcessingComposer().addPass(bloomPass);
+            bloomAddedRef.current = true;
+        } catch (err) {
+            // Known to be version-sensitive across three.js releases — if it
+            // fails, the globe still renders perfectly without bloom.
+            console.warn("[Sentinel] Bloom post-processing unavailable in this environment:", err);
+        }
+    }, [width, height]);
 
     // ── Real threats with valid coordinates → globe points ──────────────
     const points = useMemo(() => {
@@ -93,24 +129,9 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
             }));
     }, [feed]);
 
-    // ── Arcs — dual layer per threat: glow (wide, soft) + core (thin, bright) ──
+    // ── Arcs — one bright comet-style arc per threat (bloom supplies the glow) ──
     const arcs = useMemo(() => {
-        const glow = points.map((t) => {
-            const rgb = SEVERITY_RGB[t.severity] ?? SEVERITY_RGB.LOW;
-            return {
-                id: `${t.id}-glow`,
-                startLat: t.lat,
-                startLng: t.lng,
-                endLat: SENTINEL_HQ.lat,
-                endLng: SENTINEL_HQ.lng,
-                color: `rgba(${rgb},0.28)`,
-                stroke: t.severity === "CRITICAL" ? 1.8 : 1.2,
-                dashLength: 0.4,
-                dashGap: 1.6,
-                dashTime: 1600,
-            };
-        });
-        const core = points.map((t) => {
+        return points.map((t) => {
             const rgb = SEVERITY_RGB[t.severity] ?? SEVERITY_RGB.LOW;
             return {
                 id: String(t.id),
@@ -120,21 +141,17 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                 endLng: SENTINEL_HQ.lng,
                 color: `rgb(${rgb})`,
                 severity: t.severity,
-                stroke: t.severity === "CRITICAL" ? 0.6 : 0.4,
-                // Short dash + fast animate time = quick shooting-comet streak
-                // instead of a slow, gentle dashed flow.
+                stroke: t.severity === "CRITICAL" ? 0.65 : 0.42,
                 dashLength: 0.16,
                 dashGap: 2.4,
                 dashTime: 1300,
             };
         });
-        return [...glow, ...core];
     }, [points]);
 
     // ── Fire a landing pulse at HQ for each genuinely new arc ────────────
     useEffect(() => {
-        const coreArcs = arcs.filter((a) => !a.id.endsWith("-glow"));
-        const fresh = coreArcs.filter((a) => !seenArcIdsRef.current.has(a.id));
+        const fresh = arcs.filter((a) => !seenArcIdsRef.current.has(a.id));
         if (fresh.length === 0) return;
         fresh.forEach((a) => seenArcIdsRef.current.add(a.id));
 
@@ -194,7 +211,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                 position: "relative",
                 width: "100%",
                 height,
-                background: "#020409",
+                background: "#000003",
                 border: `1px solid ${colors.border}`,
                 borderRadius: 16,
                 overflow: "hidden",
@@ -205,7 +222,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     ref={globeEl}
                     width={width}
                     height={height}
-                    backgroundColor="rgba(0,0,0,0)"
+                    backgroundImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png"
                     globeImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg"
                     bumpImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
                     showAtmosphere
@@ -219,7 +236,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     pointAltitude={0.018}
                     pointRadius="size"
                     onPointHover={setHovered}
-                    // Arcs — dual-layer glow + comet-style core
+                    // Arcs — comet-style, bloom supplies the glow
                     arcsData={arcs}
                     arcColor="color"
                     arcAltitude={0.28}

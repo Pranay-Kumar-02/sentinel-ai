@@ -1,17 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — ThreatMap (v4 — STARFIELD + CINEMATIC + REAL BLOOM)
-// v3 added fake glow via duplicate arcs. v4 goes further:
-//   - Real starfield background (official three-globe asset) instead of flat
-//     black void — the single biggest "this looks like a toy" fix.
-//   - Slow cinematic camera drift — periodically eases to a nearby vantage
-//     point instead of pure mechanical rotation, feels intentional/directed.
-//   - GENUINE bloom lighting (UnrealBloomPass) — makes city lights, arcs, and
-//     points actually glow via real post-processing, not a CSS trick. This
-//     is wrapped in try/catch and only added once: if it fails to compile on
-//     a given GPU/three.js combination, it fails silently and you keep the
-//     fully working non-bloom globe instead of a broken page. Since bloom now
-//     provides real glow, the old fake dual-arc trick is dropped — one arc
-//     per threat, cleaner and lets bloom do the glowing.
+// SENTINEL AI — ThreatMap (v5 — ALL-IN)
+// Adds, on top of v4's starfield/cinematic-camera/bloom:
+//   1. Shooting-star arcs — each threat now renders as a paired bright "head"
+//      + softer "tail" arc, phase-locked via a shared gapPhase so they travel
+//      together as one comet instead of two independent dashed lines.
+//   2. Glowing country borders — real world country geometry (official
+//      three-globe/globe.gl dataset), subtle everywhere, brighter/highlighted
+//      for countries with an ACTUAL active threat right now (data-driven, not
+//      decorative).
+//   3. Custom-branded Sentinel Command beacon — replaces the plain built-in
+//      text label with a real styled HTML marker matching the app's glass/
+//      glow aesthetic, via htmlElementsData.
+//   4. Cinematic vignette — radial-gradient overlay darkening the edges to
+//      focus attention on the globe, pure CSS, zero rendering risk.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -27,6 +28,10 @@ import { countryFlag } from "../../utils/formatters";
 // is built as India's AI-native CTI platform. Purely visual/narrative;
 // no real infrastructure location is implied or exposed.
 const SENTINEL_HQ = { lat: 20.5937, lng: 78.9629 };
+
+// Official globe.gl example dataset — world country boundaries (Natural Earth 110m)
+const COUNTRIES_GEOJSON_URL =
+    "https://cdn.jsdelivr.net/gh/vasturiano/globe.gl/example/datasets/ne_110m_admin_0_countries.geojson";
 
 const SEVERITY_COLOR = {
     CRITICAL: "#ff3b5c",
@@ -65,6 +70,19 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
     const [width, setWidth] = useState(0);
     const [hovered, setHovered] = useState(null);
     const [landingRings, setLandingRings] = useState([]);
+    const [countries, setCountries] = useState({ features: [] });
+
+    // ── Load real world country borders once (decorative fetch — fails silently) ──
+    useEffect(() => {
+        fetch(COUNTRIES_GEOJSON_URL)
+            .then((res) => res.json())
+            .then((data) => setCountries(data))
+            .catch(() => {
+                // Borders are an enhancement, not core functionality —
+                // if the CDN fetch fails, the globe still works fine without them.
+                console.warn("[Sentinel] Country border data failed to load — continuing without it.");
+            });
+    }, []);
 
     // ── Responsive sizing — react-globe.gl needs explicit pixel width ──────
     useEffect(() => {
@@ -103,15 +121,13 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
         try {
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(width, height),
-                0.55,  // strength — reduced so it accents, doesn't wash out
+                0.55,  // strength — accents, doesn't wash out
                 0.3,   // radius
-                0.32   // threshold — raised so only genuine hotspots (arcs, points, city lights) bloom, not the whole atmosphere shell
+                0.32   // threshold — only genuine hotspots bloom, not the whole atmosphere shell
             );
             globeEl.current.postProcessingComposer().addPass(bloomPass);
             bloomAddedRef.current = true;
         } catch (err) {
-            // Known to be version-sensitive across three.js releases — if it
-            // fails, the globe still renders perfectly without bloom.
             console.warn("[Sentinel] Bloom post-processing unavailable in this environment:", err);
         }
     }, [width, height]);
@@ -129,29 +145,51 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
             }));
     }, [feed]);
 
-    // ── Arcs — one bright comet-style arc per threat (bloom supplies the glow) ──
+    // ── Countries currently hosting an active real threat ────────────────
+    const activeCountrySet = useMemo(
+        () => new Set(points.map((p) => p.country).filter(Boolean)),
+        [points]
+    );
+
+    // ── Arcs — shooting-star pairs: bright "head" + soft "tail" per threat ──
     const arcs = useMemo(() => {
-        return points.map((t) => {
+        const list = [];
+        for (const t of points) {
             const rgb = SEVERITY_RGB[t.severity] ?? SEVERITY_RGB.LOW;
-            return {
-                id: String(t.id),
+            const gapPhase = Math.random() * 2; // shared so head+tail move as one unit
+            const strokeBase = t.severity === "CRITICAL" ? 0.55 : 0.35;
+            const base = {
                 startLat: t.lat,
                 startLng: t.lng,
                 endLat: SENTINEL_HQ.lat,
                 endLng: SENTINEL_HQ.lng,
-                color: `rgb(${rgb})`,
                 severity: t.severity,
-                stroke: t.severity === "CRITICAL" ? 0.65 : 0.42,
-                dashLength: 0.16,
-                dashGap: 2.4,
+                dashGap: 2.3,
                 dashTime: 1300,
+                gapPhase,
             };
-        });
+            list.push({
+                ...base,
+                id: String(t.id),
+                color: `rgba(${rgb},0.5)`,
+                stroke: strokeBase,
+                dashLength: 0.22,
+            });
+            list.push({
+                ...base,
+                id: `${t.id}-head`,
+                color: `rgb(${rgb})`,
+                stroke: strokeBase * 1.6,
+                dashLength: 0.035, // short — reads as a bright traveling point
+            });
+        }
+        return list;
     }, [points]);
 
-    // ── Fire a landing pulse at HQ for each genuinely new arc ────────────
+    // ── Fire a landing pulse at HQ for each genuinely new threat ─────────
     useEffect(() => {
-        const fresh = arcs.filter((a) => !seenArcIdsRef.current.has(a.id));
+        const tails = arcs.filter((a) => !a.id.endsWith("-head"));
+        const fresh = tails.filter((a) => !seenArcIdsRef.current.has(a.id));
         if (fresh.length === 0) return;
         fresh.forEach((a) => seenArcIdsRef.current.add(a.id));
 
@@ -228,6 +266,19 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     showAtmosphere
                     atmosphereColor={colors.accent}
                     atmosphereAltitude={0.13}
+                    // Country borders — subtle everywhere, glowing where a real threat is active
+                    polygonsData={countries.features?.filter((f) => f.properties.ISO_A2 !== "AQ") ?? []}
+                    polygonAltitude={0.006}
+                    polygonCapColor={(f) =>
+                        activeCountrySet.has(f.properties.ISO_A2) ? "rgba(255,90,90,0.12)" : "rgba(0,0,0,0)"
+                    }
+                    polygonSideColor={() => "rgba(0,0,0,0)"}
+                    polygonStrokeColor={(f) =>
+                        activeCountrySet.has(f.properties.ISO_A2)
+                            ? "rgba(255,130,130,0.85)"
+                            : "rgba(110,190,255,0.18)"
+                    }
+                    polygonsTransitionDuration={400}
                     // Points — real threats at real coordinates
                     pointsData={points}
                     pointLat="lat"
@@ -236,14 +287,14 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     pointAltitude={0.018}
                     pointRadius="size"
                     onPointHover={setHovered}
-                    // Arcs — comet-style, bloom supplies the glow
+                    // Arcs — shooting-star head + tail pairs
                     arcsData={arcs}
                     arcColor="color"
                     arcAltitude={0.28}
                     arcStroke="stroke"
                     arcDashLength="dashLength"
                     arcDashGap="dashGap"
-                    arcDashInitialGap={() => Math.random() * 2}
+                    arcDashInitialGap="gapPhase"
                     arcDashAnimateTime="dashTime"
                     arcsTransitionDuration={0}
                     // Rings — persistent ambient beacons + landing pulses
@@ -253,15 +304,51 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     ringPropagationSpeed={(r) => r.speed}
                     ringRepeatPeriod={(r) => r.repeatPeriod}
                     ringAltitude={(r) => r.altitude}
-                    // Sentinel Command label
-                    labelsData={[{ lat: SENTINEL_HQ.lat, lng: SENTINEL_HQ.lng, text: "SENTINEL COMMAND" }]}
-                    labelText="text"
-                    labelSize={1.15}
-                    labelColor={() => colors.accent}
-                    labelDotRadius={0.45}
-                    labelAltitude={0.018}
+                    // Custom-branded Sentinel Command beacon (replaces plain text label)
+                    htmlElementsData={[{ lat: SENTINEL_HQ.lat, lng: SENTINEL_HQ.lng }]}
+                    htmlLat="lat"
+                    htmlLng="lng"
+                    htmlAltitude={0.02}
+                    htmlElement={() => {
+                        const el = document.createElement("div");
+                        el.style.pointerEvents = "none";
+                        el.style.transform = "translate(-50%, -100%)";
+                        el.innerHTML = `
+                            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;">
+                                <div style="
+                                    width:9px;height:9px;border-radius:50%;
+                                    background:#00e5ff;
+                                    box-shadow:0 0 10px 3px rgba(0,229,255,0.9), 0 0 26px 9px rgba(0,229,255,0.35);
+                                "></div>
+                                <div style="
+                                    font-family:var(--font-accent, monospace);
+                                    font-size:10px;
+                                    font-weight:700;
+                                    letter-spacing:0.12em;
+                                    color:#7fefff;
+                                    text-shadow:0 0 8px rgba(0,229,255,0.8);
+                                    white-space:nowrap;
+                                    background:rgba(2,4,9,0.6);
+                                    padding:3px 9px;
+                                    border:1px solid rgba(0,229,255,0.35);
+                                    border-radius:6px;
+                                    backdrop-filter:blur(6px);
+                                ">SENTINEL COMMAND</div>
+                            </div>
+                        `;
+                        return el;
+                    }}
                 />
             )}
+
+            {/* Cinematic vignette — darkens edges, focuses attention on the globe */}
+            <div style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                background: "radial-gradient(ellipse at center, transparent 38%, rgba(0,0,3,0.6) 100%)",
+                zIndex: 2,
+            }} />
 
             {/* Hover tooltip */}
             <AnimatePresence>
@@ -312,6 +399,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     fontFamily: "var(--font-mono)",
                     fontSize: "0.78rem",
                     pointerEvents: "none",
+                    zIndex: 3,
                 }}>
                     Awaiting threats...
                 </div>
@@ -329,6 +417,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                 backdropFilter: "blur(12px)",
                 border: `1px solid ${colors.border}`,
                 borderRadius: 8,
+                zIndex: 4,
             }}>
                 {[
                     { label: "Critical", color: SEVERITY_COLOR.CRITICAL },
@@ -358,6 +447,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
+                zIndex: 4,
             }}>
                 <motion.div
                     animate={{ opacity: [1, 0.3, 1] }}

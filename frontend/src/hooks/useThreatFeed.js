@@ -1,122 +1,33 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — useThreatFeed hook
-// Live threat intelligence feed with simulated IOCs, rotating real patterns,
-// severity levels, and auto-pause on tab blur.
+// SENTINEL AI — useThreatFeed hook (v2 — REAL DATA)
+// Polls the backend's /threat-feed/live endpoint (real URLhaus data) instead
+// of generating simulated threats client-side. Same public interface as the
+// old version, so LiveFeed.jsx and any other consumer need ZERO changes.
 //
 // Usage:
 //   const { feed, isLive, pause, resume, clearFeed } = useThreatFeed()
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import api, { APIError } from "../utils/api";
 
-// ── Threat data pools ─────────────────────────────────────────────────────────
-
-const THREAT_DOMAINS = [
-    "paypa1-secure.net", "hdfc-alert.xyz", "sbi-kyc-update.com",
-    "amazon-prize.tk", "irctc-refund.in", "aadhar-verify.live",
-    "google-security-alert.co", "whatsapp-winner.net", "paytm-bonus.xyz",
-    "rbi-kyc.tk", "uidai-update.live", "income-tax-refund.com",
-    "netflix-verify.co", "microsoft-alert.net", "apple-id-locked.xyz",
-    "bank-secure-login.tk", "trai-disconnect.live", "epfo-update.in",
-];
-
-const THREAT_IPS = [
-    "185.220.101.45", "45.142.212.100", "194.165.16.77",
-    "91.108.4.0", "195.178.110.42", "185.234.218.59",
-    "103.75.190.11", "45.33.32.156", "172.67.132.90",
-    "104.21.45.117", "185.199.110.10", "198.51.100.42",
-];
-
-const THREAT_TYPES = [
-    "Phishing Campaign", "UPI Scam", "Brand Impersonation",
-    "Credential Harvesting", "Malware Distribution", "BEC Attack",
-    "Smishing", "Vishing", "Job Scam",
-    "Investment Fraud", "Tech Support Scam", "OTP Harvesting",
-    "Fake KYC Request", "Lottery Scam", "Remote Access Trojan",
-    "Ransomware Dropper", "TRAI Fraud", "Aadhaar Scam",
-];
-
-const THREAT_COUNTRIES = [
-    "IN", "NG", "RU", "CN", "BR", "PK", "BD", "GH", "UA", "RO",
-];
-
-const SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-
-const SEVERITY_WEIGHTS = [0.3, 0.4, 0.2, 0.1]; // distribution
-
-const MITRE_TECHNIQUES = [
-    "T1566.001", "T1566.002", "T1598", "T1059",
-    "T1190", "T1078", "T1110", "T1071",
-    "T1055", "T1486", "T1041", "T1027",
-];
-
-const TARGET_SECTORS = [
-    "Banking", "E-Commerce", "Government", "Healthcare",
-    "Education", "Telecom", "Insurance", "Crypto",
-];
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function pick(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function weightedSeverity() {
-    const r = Math.random();
-    let cum = 0;
-    for (let i = 0; i < SEVERITIES.length; i++) {
-        cum += SEVERITY_WEIGHTS[i];
-        if (r < cum) return SEVERITIES[i];
-    }
-    return "LOW";
-}
-
-function generateThreatItem() {
-    const severity = weightedSeverity();
-    const type = pick(THREAT_TYPES);
-    const domain = pick(THREAT_DOMAINS);
-    const ip = pick(THREAT_IPS);
-    const country = pick(THREAT_COUNTRIES);
-    const mitre = pick(MITRE_TECHNIQUES);
-    const sector = pick(TARGET_SECTORS);
-
-    return {
-        id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
-        timestamp: new Date().toISOString(),
-        severity,
-        type,
-        domain,
-        ip,
-        country,
-        mitre,
-        sector,
-        confidence: Math.floor(Math.random() * 35) + 65, // 65–100
-        ioc: Math.random() > 0.5 ? domain : ip,
-        iocType: Math.random() > 0.5 ? "domain" : "ip",
-        description: `${type} targeting ${sector} sector via ${domain}`,
-        source: pick(["OSINT Feed", "Community Report", "Honeypot", "PhishTank", "URLhaus", "AlienVault OTX"]),
-        isNew: true,
-    };
-}
-
-// ── Interval map per severity ─────────────────────────────────────────────────
-
-const BASE_INTERVAL_MS = 3500;
-
-// ── Main Hook ─────────────────────────────────────────────────────────────────
+// The backend caches URLhaus data for 5 minutes (their fair-use limit), so
+// polling faster than that mostly re-reads the same cached response. This
+// interval keeps the feed feeling "live" without hammering the backend.
+const DEFAULT_POLL_MS = 20_000;
 
 /**
  * @param {object} [options]
- * @param {number}  [options.maxItems=50]       - max feed items kept in memory
- * @param {number}  [options.intervalMs=3500]   - ms between new threat items
- * @param {boolean} [options.autoStart=true]    - start feed immediately
- * @param {boolean} [options.pauseOnBlur=true]  - pause when tab loses focus
- * @param {(item: object) => void} [options.onNewThreat] - callback on each new item
+ * @param {number}  [options.maxItems=50]        - max feed items kept in memory
+ * @param {number}  [options.intervalMs=20000]   - ms between polls to backend
+ * @param {boolean} [options.autoStart=true]     - start polling immediately
+ * @param {boolean} [options.pauseOnBlur=true]   - pause polling when tab loses focus
+ * @param {(item: object) => void} [options.onNewThreat] - callback for each newly-seen item
  */
 export function useThreatFeed(options = {}) {
     const {
         maxItems = 50,
-        intervalMs = BASE_INTERVAL_MS,
+        intervalMs = DEFAULT_POLL_MS,
         autoStart = true,
         pauseOnBlur = true,
         onNewThreat = null,
@@ -125,72 +36,87 @@ export function useThreatFeed(options = {}) {
     const [feed, setFeed] = useState([]);
     const [isLive, setIsLive] = useState(autoStart);
     const [isPaused, setIsPaused] = useState(false);
-    const [stats, setStats] = useState({
-        total: 0,
-        critical: 0,
-        high: 0,
-        medium: 0,
-        low: 0,
-    });
+    const [isConnected, setIsConnected] = useState(true);
+    const [error, setError] = useState(null);
 
     const intervalRef = useRef(null);
     const isLiveRef = useRef(autoStart);
     const isPausedRef = useRef(false);
+    const seenIdsRef = useRef(new Set());
+    const abortRef = useRef(null);
     const onNewThreatRef = useRef(onNewThreat);
 
     useEffect(() => { onNewThreatRef.current = onNewThreat; }, [onNewThreat]);
 
-    // ── Emit one threat item ────────────────────────────────────
-    const emitThreat = useCallback(() => {
+    // ── Poll backend once ───────────────────────────────────────
+    const pollOnce = useCallback(async () => {
         if (!isLiveRef.current || isPausedRef.current) return;
 
-        const item = generateThreatItem();
+        if (abortRef.current) abortRef.current.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
 
-        setFeed((prev) => {
-            const next = [item, ...prev];
-            return next.length > maxItems ? next.slice(0, maxItems) : next;
-        });
+        try {
+            const res = await api.threatFeedLive(maxItems, controller.signal);
+            const items = res?.items ?? [];
 
-        setStats((prev) => ({
-            total: prev.total + 1,
-            critical: prev.critical + (item.severity === "CRITICAL" ? 1 : 0),
-            high: prev.high + (item.severity === "HIGH" ? 1 : 0),
-            medium: prev.medium + (item.severity === "MEDIUM" ? 1 : 0),
-            low: prev.low + (item.severity === "LOW" ? 1 : 0),
-        }));
+            setIsConnected(true);
+            setError(null);
 
-        if (onNewThreatRef.current) onNewThreatRef.current(item);
+            const isFirstLoad = seenIdsRef.current.size === 0;
+            const freshItems = [];
 
-        // Mark item as not new after 3s
-        setTimeout(() => {
-            setFeed((prev) =>
-                prev.map((f) => (f.id === item.id ? { ...f, isNew: false } : f))
-            );
-        }, 3000);
+            for (const item of items) {
+                if (!seenIdsRef.current.has(item.id)) {
+                    seenIdsRef.current.add(item.id);
+                    freshItems.push({ ...item, isNew: !isFirstLoad });
+                }
+            }
+
+            if (freshItems.length === 0) return;
+
+            setFeed((prev) => {
+                const next = isFirstLoad ? freshItems : [...freshItems, ...prev];
+                return next.length > maxItems ? next.slice(0, maxItems) : next;
+            });
+
+            // Skip the "just arrived" pulse animation on initial load —
+            // only fire callbacks / highlight items discovered after that.
+            if (!isFirstLoad) {
+                freshItems.forEach((item) => onNewThreatRef.current?.(item));
+                setTimeout(() => {
+                    setFeed((prev) =>
+                        prev.map((f) =>
+                            freshItems.some((n) => n.id === f.id) ? { ...f, isNew: false } : f
+                        )
+                    );
+                }, 3000);
+            }
+        } catch (err) {
+            if (err?.name === "AbortError") return;
+            setIsConnected(false);
+            setError(err instanceof APIError ? err.message : "Failed to reach threat feed");
+        }
     }, [maxItems]);
 
-    // ── Start interval ──────────────────────────────────────────
-    const startInterval = useCallback(() => {
+    // ── Start / stop polling ────────────────────────────────────
+    const startPolling = useCallback(() => {
         if (intervalRef.current) clearInterval(intervalRef.current);
-        // Stagger initial burst
-        const jitter = Math.random() * 1000;
-        setTimeout(() => {
-            emitThreat();
-            intervalRef.current = setInterval(emitThreat, intervalMs);
-        }, jitter);
-    }, [emitThreat, intervalMs]);
+        pollOnce(); // fetch immediately, don't wait for the first interval tick
+        intervalRef.current = setInterval(pollOnce, intervalMs);
+    }, [pollOnce, intervalMs]);
 
-    // ── Controls ────────────────────────────────────────────────
     const start = useCallback(() => {
         isLiveRef.current = true;
         setIsLive(true);
-        startInterval();
-    }, [startInterval]);
+        startPolling();
+    }, [startPolling]);
 
     const stop = useCallback(() => {
         isLiveRef.current = false;
         setIsLive(false);
         if (intervalRef.current) clearInterval(intervalRef.current);
+        if (abortRef.current) abortRef.current.abort();
     }, []);
 
     const pause = useCallback(() => {
@@ -201,12 +127,26 @@ export function useThreatFeed(options = {}) {
     const resume = useCallback(() => {
         isPausedRef.current = false;
         setIsPaused(false);
-    }, []);
+        pollOnce(); // catch up immediately on resume
+    }, [pollOnce]);
 
     const clearFeed = useCallback(() => {
         setFeed([]);
-        setStats({ total: 0, critical: 0, high: 0, medium: 0, low: 0 });
+        seenIdsRef.current.clear();
     }, []);
+
+    // ── Stats — derived live from current feed ──────────────────
+    const stats = useMemo(() => {
+        return feed.reduce(
+            (acc, item) => {
+                acc.total += 1;
+                const key = item.severity?.toLowerCase();
+                if (key && acc[key] !== undefined) acc[key] += 1;
+                return acc;
+            },
+            { total: 0, critical: 0, high: 0, medium: 0, low: 0 }
+        );
+    }, [feed]);
 
     // ── Filter helpers ──────────────────────────────────────────
     const getBySeverity = useCallback(
@@ -221,18 +161,23 @@ export function useThreatFeed(options = {}) {
 
     // ── Auto-start ──────────────────────────────────────────────
     useEffect(() => {
-        if (autoStart) startInterval();
+        if (autoStart) startPolling();
         return () => {
             if (intervalRef.current) clearInterval(intervalRef.current);
+            if (abortRef.current) abortRef.current.abort();
         };
-    }, [autoStart, startInterval]);
+    }, [autoStart, startPolling]);
 
     // ── Pause on tab blur ───────────────────────────────────────
     useEffect(() => {
         if (!pauseOnBlur) return;
 
         function onBlur() { isPausedRef.current = true; setIsPaused(true); }
-        function onFocus() { isPausedRef.current = false; setIsPaused(false); }
+        function onFocus() {
+            isPausedRef.current = false;
+            setIsPaused(false);
+            pollOnce(); // catch up on focus
+        }
 
         window.addEventListener("blur", onBlur);
         window.addEventListener("focus", onFocus);
@@ -240,7 +185,7 @@ export function useThreatFeed(options = {}) {
             window.removeEventListener("blur", onBlur);
             window.removeEventListener("focus", onFocus);
         };
-    }, [pauseOnBlur]);
+    }, [pauseOnBlur, pollOnce]);
 
     return {
         // Data
@@ -250,6 +195,8 @@ export function useThreatFeed(options = {}) {
         // State
         isLive,
         isPaused,
+        isConnected,
+        error,
 
         // Controls
         start,

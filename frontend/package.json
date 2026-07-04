@@ -15,7 +15,9 @@
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-hot-toast": "^2.6.0"
+    "react-globe.gl": "^2.38.0",
+    "react-hot-toast": "^2.6.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

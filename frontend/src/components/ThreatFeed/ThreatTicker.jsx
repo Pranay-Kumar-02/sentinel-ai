@@ -145,7 +145,7 @@ export default function ThreatTicker({ height = 36 }) {
                                     fontFamily: "var(--font-mono)",
                                     color,
                                 }}>
-                                    {truncate(item.domain, 28)}
+                                    {truncate(item.domain ?? item.ioc, 28)}
                                 </span>
                                 <span style={{
                                     fontSize: "0.6rem",

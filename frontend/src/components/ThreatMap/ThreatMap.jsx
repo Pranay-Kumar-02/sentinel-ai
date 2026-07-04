@@ -1,64 +1,126 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — ThreatMap
-// Flat world map (simplified SVG outline) with live threat markers.
-// Used in the Intelligence page and dashboard panels.
+// SENTINEL AI — ThreatMap (v2 — REAL 3D GLOBE)
+// Rebuilt from a flat hand-drawn SVG into a genuine 3D rotating globe using
+// react-globe.gl (Three.js/WebGL). Plots REAL threats at their real lat/lng
+// coordinates (from the backend's URLhaus + geolocation pipeline) and
+// animates arcs flying from each threat's origin to "Sentinel Command"
+// (India) — visualizing threats being detected and reported into the
+// platform in real time.
+//
+// Requires: npm install react-globe.gl three
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef, useMemo } from "react";
+import Globe from "react-globe.gl";
+import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useThreatFeed } from "../../hooks/useThreatFeed";
-import ThreatNode from "./ThreatNode";
+import { countryFlag } from "../../utils/formatters";
 
-// Approximate lat/lon → percentage position on equirectangular map
-function geoToPercent(lat, lon) {
-    const x = ((lon + 180) / 360) * 100;
-    const y = ((90 - lat) / 180) * 100;
-    return { x, y };
-}
+// Every detected threat arcs toward this point — India, since Sentinel AI
+// is built as India's AI-native CTI platform. Purely visual/narrative;
+// no real infrastructure location is implied or exposed.
+const SENTINEL_HQ = { lat: 20.5937, lng: 78.9629 };
 
-// Country code → approximate centroid lat/lon
-const COUNTRY_COORDS = {
-    IN: { lat: 20.6, lon: 78.9 },
-    US: { lat: 39.8, lon: -98.6 },
-    NG: { lat: 9.1, lon: 8.7 },
-    RU: { lat: 61.5, lon: 105.3 },
-    CN: { lat: 35.9, lon: 104.2 },
-    PK: { lat: 30.4, lon: 69.3 },
-    BD: { lat: 23.7, lon: 90.4 },
-    GH: { lat: 7.9, lon: -1.0 },
-    UA: { lat: 48.4, lon: 31.2 },
-    RO: { lat: 45.9, lon: 24.9 },
-    BR: { lat: -14.2, lon: -51.9 },
-    DE: { lat: 51.2, lon: 10.4 },
-    GB: { lat: 55.4, lon: -3.4 },
+const SEVERITY_COLOR = {
+    CRITICAL: "#ff3b5c",
+    HIGH: "#ff8c3b",
+    MEDIUM: "#ffc23b",
+    LOW: "#3b9bff",
 };
 
-export default function ThreatMap({ height = 360, maxNodes = 14 }) {
+const SEVERITY_RGB = {
+    CRITICAL: "255,59,92",
+    HIGH: "255,140,59",
+    MEDIUM: "255,194,59",
+    LOW: "59,155,255",
+};
+
+const SEVERITY_ORDER = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
+
+export default function ThreatMap({ height = 480, maxNodes = 40 }) {
     const { colors } = useTheme();
-    const { feed } = useThreatFeed({ maxItems: maxNodes, intervalMs: 3500 });
+    const { feed } = useThreatFeed({ maxItems: maxNodes, intervalMs: 20000 });
 
-    // Group feed by country for node aggregation
-    const grouped = {};
-    for (const item of feed) {
-        const key = item.country;
-        if (!grouped[key]) {
-            grouped[key] = { ...item, count: 0, maxSeverity: "LOW" };
-        }
-        grouped[key].count += 1;
-        const order = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
-        if (order[item.severity] > order[grouped[key].maxSeverity]) {
-            grouped[key].maxSeverity = item.severity;
-        }
-    }
+    const containerRef = useRef(null);
+    const globeEl = useRef(null);
+    const seenArcIdsRef = useRef(new Set());
 
-    const nodes = Object.values(grouped).slice(0, maxNodes).map((g, i) => {
-        const coords = COUNTRY_COORDS[g.country] ?? { lat: 0, lon: 0 };
-        const pos = geoToPercent(coords.lat, coords.lon);
-        return { ...pos, severity: g.maxSeverity, label: g.type, country: g.country, count: g.count, delay: i * 0.1 };
-    });
+    const [width, setWidth] = useState(0);
+    const [hovered, setHovered] = useState(null);
+    const [ringsData, setRingsData] = useState([]);
+
+    // ── Responsive sizing — react-globe.gl needs explicit pixel width ──────
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) setWidth(entry.contentRect.width);
+        });
+        observer.observe(el);
+        setWidth(el.clientWidth);
+        return () => observer.disconnect();
+    }, []);
+
+    // ── Auto-rotate + initial camera angle ──────────────────────────────
+    useEffect(() => {
+        if (!globeEl.current) return;
+        const controls = globeEl.current.controls();
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.45;
+        controls.enableZoom = true;
+        globeEl.current.pointOfView({ lat: 18, lng: 45, altitude: 2.1 }, 0);
+    }, []);
+
+    // ── Real threats with valid coordinates → globe points ──────────────
+    const points = useMemo(() => {
+        return feed
+            .filter((t) => typeof t.lat === "number" && typeof t.lon === "number")
+            .map((t) => ({
+                ...t,
+                lat: t.lat,
+                lng: t.lon,
+                size: 0.35 + (SEVERITY_ORDER[t.severity] ?? 0) * 0.22,
+                color: SEVERITY_COLOR[t.severity] ?? SEVERITY_COLOR.LOW,
+            }));
+    }, [feed]);
+
+    // ── Arcs: threat origin → Sentinel Command ───────────────────────────
+    const arcs = useMemo(() => {
+        return points.map((t) => ({
+            id: t.id,
+            startLat: t.lat,
+            startLng: t.lng,
+            endLat: SENTINEL_HQ.lat,
+            endLng: SENTINEL_HQ.lng,
+            color: SEVERITY_COLOR[t.severity] ?? SEVERITY_COLOR.LOW,
+            severity: t.severity,
+        }));
+    }, [points]);
+
+    // ── Fire a landing ring at HQ for each genuinely new arc ─────────────
+    useEffect(() => {
+        const fresh = arcs.filter((a) => !seenArcIdsRef.current.has(a.id));
+        if (fresh.length === 0) return;
+        fresh.forEach((a) => seenArcIdsRef.current.add(a.id));
+
+        const newRings = fresh.map((a) => ({
+            id: `${a.id}-ring`,
+            lat: SENTINEL_HQ.lat,
+            lng: SENTINEL_HQ.lng,
+            rgb: SEVERITY_RGB[a.severity] ?? SEVERITY_RGB.LOW,
+        }));
+        setRingsData((prev) => [...prev, ...newRings]);
+
+        const timer = setTimeout(() => {
+            setRingsData((prev) => prev.filter((r) => !newRings.some((n) => n.id === r.id)));
+        }, 2600);
+        return () => clearTimeout(timer);
+    }, [arcs]);
 
     return (
         <motion.div
+            ref={containerRef}
             initial={{ opacity: 0, y: 16 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.2 }}
@@ -67,62 +129,110 @@ export default function ThreatMap({ height = 360, maxNodes = 14 }) {
                 position: "relative",
                 width: "100%",
                 height,
-                background: colors.bgSurface,
+                background: "#020409",
                 border: `1px solid ${colors.border}`,
                 borderRadius: 16,
                 overflow: "hidden",
             }}
         >
-            {/* World map background — simplified dotted continents via CSS */}
-            <svg
-                viewBox="0 0 1000 500"
-                style={{
+            {width > 0 && (
+                <Globe
+                    ref={globeEl}
+                    width={width}
+                    height={height}
+                    backgroundColor="rgba(0,0,0,0)"
+                    globeImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg"
+                    bumpImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
+                    showAtmosphere
+                    atmosphereColor={colors.accent}
+                    atmosphereAltitude={0.22}
+                    // Points — real threats at real coordinates
+                    pointsData={points}
+                    pointLat="lat"
+                    pointLng="lng"
+                    pointColor="color"
+                    pointAltitude={0.012}
+                    pointRadius="size"
+                    onPointHover={setHovered}
+                    // Arcs — threat origin flying toward Sentinel Command
+                    arcsData={arcs}
+                    arcColor="color"
+                    arcAltitude={0.28}
+                    arcStroke={(a) => (a.severity === "CRITICAL" ? 0.7 : 0.4)}
+                    arcDashLength={0.4}
+                    arcDashGap={2}
+                    arcDashInitialGap={() => Math.random() * 2}
+                    arcDashAnimateTime={2600}
+                    arcsTransitionDuration={0}
+                    // Rings — pulse when a threat "lands"
+                    ringsData={ringsData}
+                    ringColor={(r) => (t) => `rgba(${r.rgb},${1 - t})`}
+                    ringMaxRadius={6}
+                    ringPropagationSpeed={4}
+                    ringRepeatPeriod={800}
+                    // Sentinel Command label
+                    labelsData={[{ lat: SENTINEL_HQ.lat, lng: SENTINEL_HQ.lng, text: "SENTINEL COMMAND" }]}
+                    labelText="text"
+                    labelSize={1.1}
+                    labelColor={() => colors.accent}
+                    labelDotRadius={0.4}
+                    labelAltitude={0.012}
+                />
+            )}
+
+            {/* Hover tooltip */}
+            <AnimatePresence>
+                {hovered && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 6 }}
+                        style={{
+                            position: "absolute",
+                            top: 14,
+                            left: 14,
+                            background: colors.bgGlass,
+                            backdropFilter: "blur(16px)",
+                            border: `1px solid ${(SEVERITY_COLOR[hovered.severity] ?? colors.accent)}40`,
+                            borderRadius: 10,
+                            padding: "10px 14px",
+                            maxWidth: 260,
+                            pointerEvents: "none",
+                            zIndex: 5,
+                        }}
+                    >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                            <span>{countryFlag(hovered.country)}</span>
+                            <span style={{ fontFamily: "var(--font-body)", fontWeight: 600, fontSize: "0.8rem", color: colors.text }}>
+                                {hovered.type}
+                            </span>
+                        </div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: SEVERITY_COLOR[hovered.severity] ?? colors.accent }}>
+                            {hovered.ioc}
+                        </div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: colors.textMuted, marginTop: 3 }}>
+                            {hovered.confidence}% confidence · {hovered.source}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Empty state */}
+            {points.length === 0 && (
+                <div style={{
                     position: "absolute",
                     inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    opacity: 0.12,
-                }}
-                preserveAspectRatio="xMidYMid slice"
-            >
-                {/* Simplified world continents as dot grid */}
-                <defs>
-                    <pattern id="worldDots" width="14" height="14" patternUnits="userSpaceOnUse">
-                        <circle cx="2" cy="2" r="1" fill={colors.accent} />
-                    </pattern>
-                </defs>
-                {/* Rough continent silhouettes using paths (simplified) */}
-                <g fill="url(#worldDots)" stroke="none">
-                    {/* North America */}
-                    <path d="M 100 100 Q 180 80 220 120 L 240 180 Q 200 220 150 210 L 100 180 Z" />
-                    {/* South America */}
-                    <path d="M 230 250 Q 260 240 270 290 L 260 380 Q 230 390 220 340 Z" />
-                    {/* Europe */}
-                    <path d="M 480 100 Q 540 90 560 130 L 540 160 Q 500 165 480 140 Z" />
-                    {/* Africa */}
-                    <path d="M 480 180 Q 540 170 560 230 L 540 340 Q 490 360 470 280 Z" />
-                    {/* Asia */}
-                    <path d="M 580 80 Q 750 60 820 130 L 800 220 Q 650 240 580 180 Z" />
-                    {/* India subcontinent */}
-                    <path d="M 650 200 Q 690 195 700 240 L 680 280 Q 650 270 645 230 Z" />
-                    {/* Australia */}
-                    <path d="M 780 320 Q 850 310 870 350 L 850 380 Q 800 385 780 355 Z" />
-                </g>
-            </svg>
-
-            {/* Grid overlay */}
-            <div style={{
-                position: "absolute",
-                inset: 0,
-                backgroundImage: `linear-gradient(${colors.border} 1px, transparent 1px), linear-gradient(90deg, ${colors.border} 1px, transparent 1px)`,
-                backgroundSize: "40px 40px",
-                opacity: 0.3,
-            }} />
-
-            {/* Threat nodes */}
-            {nodes.map((node, i) => (
-                <ThreatNode key={`${node.country}-${i}`} {...node} />
-            ))}
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: colors.textDim,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.78rem",
+                    pointerEvents: "none",
+                }}>
+                    Awaiting threats...
+                </div>
+            )}
 
             {/* Legend */}
             <div style={{
@@ -138,10 +248,10 @@ export default function ThreatMap({ height = 360, maxNodes = 14 }) {
                 borderRadius: 8,
             }}>
                 {[
-                    { label: "Critical", color: colors.red },
-                    { label: "High", color: colors.orange },
-                    { label: "Medium", color: colors.amber },
-                    { label: "Low", color: colors.blue },
+                    { label: "Critical", color: SEVERITY_COLOR.CRITICAL },
+                    { label: "High", color: SEVERITY_COLOR.HIGH },
+                    { label: "Medium", color: SEVERITY_COLOR.MEDIUM },
+                    { label: "Low", color: SEVERITY_COLOR.LOW },
                 ].map((l) => (
                     <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                         <div style={{ width: 6, height: 6, borderRadius: "50%", background: l.color }} />
@@ -172,7 +282,7 @@ export default function ThreatMap({ height = 360, maxNodes = 14 }) {
                     style={{ width: 5, height: 5, borderRadius: "50%", background: colors.green }}
                 />
                 <span style={{ fontSize: "0.65rem", color: colors.textSub, fontFamily: "var(--font-mono)" }}>
-                    {nodes.length} active zones
+                    {points.length} active zones · live
                 </span>
             </div>
         </motion.div>

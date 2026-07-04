@@ -6,7 +6,8 @@
 // ── String utilities ──────────────────────────────────────────────────────────
 
 /** Truncate a string to maxLen chars with ellipsis */
-export function truncate(str = "", maxLen = 60) {
+export function truncate(str, maxLen = 60) {
+    if (!str) return "";
     if (str.length <= maxLen) return str;
     return str.slice(0, maxLen - 1) + "…";
 }

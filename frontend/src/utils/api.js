@@ -108,6 +108,17 @@ export const api = {
         return request("/", { method: "GET" });
     },
 
+    // ── Live Threat Feed ─────────────────────────────────────────
+
+    /**
+     * GET /threat-feed/live — real threat data (URLhaus / abuse.ch)
+     * @param {number} [limit=30]
+     * @param {AbortSignal} [signal]
+     */
+    async threatFeedLive(limit = 30, signal = null) {
+        return request(`/threat-feed/live?limit=${limit}`, { method: "GET" }, signal);
+    },
+
     // ── LLM Analysis ─────────────────────────────────────────────
 
     /**

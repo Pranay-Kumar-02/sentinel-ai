@@ -1,8 +1,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# SENTINEL AI — Threat Feed Engine (Phase 5)
+# SENTINEL AI — Threat Feed Engine (Phase 5, v2)
 # Pulls REAL malicious URL data from URLhaus (abuse.ch) — replaces the old
 # frontend-side random data generator entirely. Every item served here is a
 # genuine indicator of compromise, not simulated.
+#
+# v2 fixes a race condition: multiple frontend components (LiveFeed, ThreatMap,
+# ThreatTicker) each poll this endpoint independently. If they all hit a cold
+# cache at the same moment, they'd previously each fire a separate concurrent
+# request to URLhaus — which abuse.ch can reject as a duplicate burst, causing
+# 500 errors. An asyncio.Lock now ensures only ONE real upstream fetch happens
+# at a time; everyone else waits and reads the freshly-populated cache.
+#
+# It also fixes a related bug: different components request different `limit`
+# values. The cache now always fetches a fixed, larger batch internally and
+# slices per-request, so no caller silently gets fewer real items just because
+# it wasn't first to populate the cache.
 #
 # Setup required:
 #   1. Get a free Auth-Key at https://auth.abuse.ch/
@@ -19,6 +31,7 @@
 import os
 import re
 import time
+import asyncio
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -35,12 +48,25 @@ URLHAUS_RECENT_URL = "https://urlhaus-api.abuse.ch/v1/urls/recent/"
 # abuse.ch fair-use policy: do not poll more often than every 5 minutes
 CACHE_TTL_SECONDS = 5 * 60
 
+# Always fetch this many from URLhaus internally, regardless of what any one
+# caller asks for — every component then slices from the same full cache.
+FETCH_LIMIT = 60
+
 _cache = {
     "items": [],
     "fetched_at": 0.0,
 }
 
+# Ensures only one real upstream request runs at a time, even if several
+# frontend components poll concurrently against a cold cache.
+_fetch_lock = asyncio.Lock()
+
 IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+# ip-api.com's free tier allows 45 requests/minute. Bound concurrent geo
+# lookups so a full refresh (up to FETCH_LIMIT records) doesn't burst past
+# that in a single instant and get some of them rate-limited.
+_geo_semaphore = asyncio.Semaphore(35)
 
 # ── Heuristic category → likely MITRE technique (see honesty note above) ──────
 THREAT_TYPE_TO_MITRE = {
@@ -107,23 +133,24 @@ async def _geo_lookup(host: str) -> dict:
     ip = host if IP_RE.match(host) else extract_ip(host)
     if not ip:
         return {"ip": None, "country_code": None, "country": "Unknown", "lat": None, "lon": None}
-    try:
-        async with httpx.AsyncClient(timeout=8) as client:
-            res = await client.get(
-                f"http://ip-api.com/json/{ip}?fields=status,countryCode,country,lat,lon"
-            )
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("status") == "success":
-                    return {
-                        "ip": ip,
-                        "country_code": data.get("countryCode"),
-                        "country": data.get("country", "Unknown"),
-                        "lat": data.get("lat"),
-                        "lon": data.get("lon"),
-                    }
-    except Exception:
-        pass
+    async with _geo_semaphore:
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                res = await client.get(
+                    f"http://ip-api.com/json/{ip}?fields=status,countryCode,country,lat,lon"
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    if data.get("status") == "success":
+                        return {
+                            "ip": ip,
+                            "country_code": data.get("countryCode"),
+                            "country": data.get("country", "Unknown"),
+                            "lat": data.get("lat"),
+                            "lon": data.get("lon"),
+                        }
+        except Exception:
+            pass
     return {"ip": ip, "country_code": None, "country": "Unknown", "lat": None, "lon": None}
 
 
@@ -156,16 +183,8 @@ async def _transform(record: dict) -> dict:
     }
 
 
-async def fetch_recent_threats(limit: int = 30) -> list:
-    """
-    Fetch and transform recent REAL threats from URLhaus.
-    Cached for CACHE_TTL_SECONDS to respect abuse.ch's fair-use policy —
-    the dataset itself only refreshes every 5 minutes on their end anyway.
-    """
-    now = time.time()
-    if _cache["items"] and (now - _cache["fetched_at"]) < CACHE_TTL_SECONDS:
-        return _cache["items"][:limit]
-
+async def _refresh_cache() -> None:
+    """Actually hit URLhaus and repopulate the cache. Caller must hold the lock."""
     if not URLHAUS_AUTH_KEY:
         raise RuntimeError(
             "URLHAUS_AUTH_KEY not configured. Get a free key at "
@@ -175,7 +194,7 @@ async def fetch_recent_threats(limit: int = 30) -> list:
     headers = {"Auth-Key": URLHAUS_AUTH_KEY}
 
     async with httpx.AsyncClient(timeout=20) as client:
-        res = await client.get(f"{URLHAUS_RECENT_URL}limit/{limit}/", headers=headers)
+        res = await client.get(f"{URLHAUS_RECENT_URL}limit/{FETCH_LIMIT}/", headers=headers)
 
     if res.status_code != 200:
         raise RuntimeError(f"URLhaus API request failed: HTTP {res.status_code}")
@@ -184,11 +203,38 @@ async def fetch_recent_threats(limit: int = 30) -> list:
     if data.get("query_status") != "ok":
         raise RuntimeError(f"URLhaus query failed: {data.get('query_status')}")
 
-    records = data.get("urls", [])[:limit]
-    items = [await _transform(r) for r in records]
+    records = data.get("urls", [])[:FETCH_LIMIT]
+    # Run all transforms (incl. geo lookups) concurrently instead of one at a
+    # time — this was the main cause of slow loads. Bounded by a semaphore
+    # (see _geo_lookup) to stay under ip-api.com's free-tier rate limit
+    # (45 req/min) during the burst, rather than silently dropping
+    # coordinates on threats that get rate-limited.
+    items = await asyncio.gather(*(_transform(r) for r in records))
+    items = list(items)
     items.sort(key=lambda x: x["timestamp"], reverse=True)
 
     _cache["items"] = items
-    _cache["fetched_at"] = now
+    _cache["fetched_at"] = time.time()
 
-    return items
+
+async def fetch_recent_threats(limit: int = 30) -> list:
+    """
+    Fetch and transform recent REAL threats from URLhaus.
+    Cached for CACHE_TTL_SECONDS to respect abuse.ch's fair-use policy.
+    Safe under concurrent calls — only one real upstream request ever runs
+    at a time; concurrent callers wait for it and share the result.
+    """
+    now = time.time()
+    if _cache["items"] and (now - _cache["fetched_at"]) < CACHE_TTL_SECONDS:
+        return _cache["items"][:limit]
+
+    async with _fetch_lock:
+        # Re-check after acquiring the lock — another request may have
+        # already refreshed the cache while we were waiting for our turn.
+        now = time.time()
+        if _cache["items"] and (now - _cache["fetched_at"]) < CACHE_TTL_SECONDS:
+            return _cache["items"][:limit]
+
+        await _refresh_cache()
+
+    return _cache["items"][:limit]

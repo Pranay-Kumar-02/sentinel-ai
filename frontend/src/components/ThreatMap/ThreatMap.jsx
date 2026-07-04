@@ -1,13 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — ThreatMap (v2 — REAL 3D GLOBE)
-// Rebuilt from a flat hand-drawn SVG into a genuine 3D rotating globe using
-// react-globe.gl (Three.js/WebGL). Plots REAL threats at their real lat/lng
-// coordinates (from the backend's URLhaus + geolocation pipeline) and
-// animates arcs flying from each threat's origin to "Sentinel Command"
-// (India) — visualizing threats being detected and reported into the
-// platform in real time.
-//
-// Requires: npm install react-globe.gl three
+// SENTINEL AI — ThreatMap (v3 — VISUAL OVERHAUL)
+// v2 was functionally correct but visually flat — thin plain arcs, no glow,
+// no ambient motion. v3 adds real visual depth using safe, reliable techniques
+// (no WebGL post-processing/shader passes — those have a documented history
+// of breaking across three.js versions, so genuine bloom is left as an
+// optional future step rather than risked here):
+//   - Dual-layer arcs: a soft wide translucent "glow" arc drawn behind a
+//     crisp bright "core" arc for each threat — fakes a glow without touching
+//     shaders.
+//   - Comet-style dash timing (short dash, fast animate) so arcs read as a
+//     quick shooting streak instead of a slow dashed line.
+//   - Persistent ambient beacon rings at every active threat location, not
+//     just on arc arrival — makes the globe feel alive even between polls.
+//   - A permanent glowing halo at Sentinel Command (India) marking it as
+//     the fixed "home base" all arcs fly toward.
+//   - Camera framed on the Asia/India region by default instead of open
+//     ocean, with slightly faster auto-rotate for more energy.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -48,7 +56,7 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
 
     const [width, setWidth] = useState(0);
     const [hovered, setHovered] = useState(null);
-    const [ringsData, setRingsData] = useState([]);
+    const [landingRings, setLandingRings] = useState([]);
 
     // ── Responsive sizing — react-globe.gl needs explicit pixel width ──────
     useEffect(() => {
@@ -62,14 +70,14 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
         return () => observer.disconnect();
     }, []);
 
-    // ── Auto-rotate + initial camera angle ──────────────────────────────
+    // ── Auto-rotate + initial camera framed on Asia/India ───────────────
     useEffect(() => {
         if (!globeEl.current) return;
         const controls = globeEl.current.controls();
         controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.45;
+        controls.autoRotateSpeed = 0.6;
         controls.enableZoom = true;
-        globeEl.current.pointOfView({ lat: 18, lng: 45, altitude: 2.1 }, 0);
+        globeEl.current.pointOfView({ lat: 14, lng: 60, altitude: 1.9 }, 0);
     }, []);
 
     // ── Real threats with valid coordinates → globe points ──────────────
@@ -80,43 +88,100 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                 ...t,
                 lat: t.lat,
                 lng: t.lon,
-                size: 0.35 + (SEVERITY_ORDER[t.severity] ?? 0) * 0.22,
+                size: 0.4 + (SEVERITY_ORDER[t.severity] ?? 0) * 0.25,
                 color: SEVERITY_COLOR[t.severity] ?? SEVERITY_COLOR.LOW,
             }));
     }, [feed]);
 
-    // ── Arcs: threat origin → Sentinel Command ───────────────────────────
+    // ── Arcs — dual layer per threat: glow (wide, soft) + core (thin, bright) ──
     const arcs = useMemo(() => {
-        return points.map((t) => ({
-            id: t.id,
-            startLat: t.lat,
-            startLng: t.lng,
-            endLat: SENTINEL_HQ.lat,
-            endLng: SENTINEL_HQ.lng,
-            color: SEVERITY_COLOR[t.severity] ?? SEVERITY_COLOR.LOW,
-            severity: t.severity,
-        }));
+        const glow = points.map((t) => {
+            const rgb = SEVERITY_RGB[t.severity] ?? SEVERITY_RGB.LOW;
+            return {
+                id: `${t.id}-glow`,
+                startLat: t.lat,
+                startLng: t.lng,
+                endLat: SENTINEL_HQ.lat,
+                endLng: SENTINEL_HQ.lng,
+                color: `rgba(${rgb},0.28)`,
+                stroke: t.severity === "CRITICAL" ? 1.8 : 1.2,
+                dashLength: 0.4,
+                dashGap: 1.6,
+                dashTime: 1600,
+            };
+        });
+        const core = points.map((t) => {
+            const rgb = SEVERITY_RGB[t.severity] ?? SEVERITY_RGB.LOW;
+            return {
+                id: String(t.id),
+                startLat: t.lat,
+                startLng: t.lng,
+                endLat: SENTINEL_HQ.lat,
+                endLng: SENTINEL_HQ.lng,
+                color: `rgb(${rgb})`,
+                severity: t.severity,
+                stroke: t.severity === "CRITICAL" ? 0.6 : 0.4,
+                // Short dash + fast animate time = quick shooting-comet streak
+                // instead of a slow, gentle dashed flow.
+                dashLength: 0.16,
+                dashGap: 2.4,
+                dashTime: 1300,
+            };
+        });
+        return [...glow, ...core];
     }, [points]);
 
-    // ── Fire a landing ring at HQ for each genuinely new arc ─────────────
+    // ── Fire a landing pulse at HQ for each genuinely new arc ────────────
     useEffect(() => {
-        const fresh = arcs.filter((a) => !seenArcIdsRef.current.has(a.id));
+        const coreArcs = arcs.filter((a) => !a.id.endsWith("-glow"));
+        const fresh = coreArcs.filter((a) => !seenArcIdsRef.current.has(a.id));
         if (fresh.length === 0) return;
         fresh.forEach((a) => seenArcIdsRef.current.add(a.id));
 
         const newRings = fresh.map((a) => ({
-            id: `${a.id}-ring`,
+            id: `${a.id}-landing`,
             lat: SENTINEL_HQ.lat,
             lng: SENTINEL_HQ.lng,
             rgb: SEVERITY_RGB[a.severity] ?? SEVERITY_RGB.LOW,
+            maxR: 7,
+            speed: 4.5,
+            repeatPeriod: 900,
+            altitude: 0.015,
         }));
-        setRingsData((prev) => [...prev, ...newRings]);
+        setLandingRings((prev) => [...prev, ...newRings]);
 
         const timer = setTimeout(() => {
-            setRingsData((prev) => prev.filter((r) => !newRings.some((n) => n.id === r.id)));
-        }, 2600);
+            setLandingRings((prev) => prev.filter((r) => !newRings.some((n) => n.id === r.id)));
+        }, 2400);
         return () => clearTimeout(timer);
     }, [arcs]);
+
+    // ── Persistent ambient beacon at every active threat + HQ halo ───────
+    const rings = useMemo(() => {
+        const beacons = points.map((t) => ({
+            id: `beacon-${t.id}`,
+            lat: t.lat,
+            lng: t.lng,
+            rgb: SEVERITY_RGB[t.severity] ?? SEVERITY_RGB.LOW,
+            maxR: 2.4,
+            speed: 1.1,
+            repeatPeriod: 2400,
+            altitude: 0.006,
+        }));
+
+        const hqHalo = {
+            id: "hq-halo",
+            lat: SENTINEL_HQ.lat,
+            lng: SENTINEL_HQ.lng,
+            rgb: "0,229,255",
+            maxR: 4.5,
+            speed: 1.6,
+            repeatPeriod: 2600,
+            altitude: 0.008,
+        };
+
+        return [...beacons, hqHalo, ...landingRings];
+    }, [points, landingRings]);
 
     return (
         <motion.div
@@ -145,38 +210,39 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     bumpImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
                     showAtmosphere
                     atmosphereColor={colors.accent}
-                    atmosphereAltitude={0.22}
+                    atmosphereAltitude={0.26}
                     // Points — real threats at real coordinates
                     pointsData={points}
                     pointLat="lat"
                     pointLng="lng"
                     pointColor="color"
-                    pointAltitude={0.012}
+                    pointAltitude={0.018}
                     pointRadius="size"
                     onPointHover={setHovered}
-                    // Arcs — threat origin flying toward Sentinel Command
+                    // Arcs — dual-layer glow + comet-style core
                     arcsData={arcs}
                     arcColor="color"
                     arcAltitude={0.28}
-                    arcStroke={(a) => (a.severity === "CRITICAL" ? 0.7 : 0.4)}
-                    arcDashLength={0.4}
-                    arcDashGap={2}
+                    arcStroke="stroke"
+                    arcDashLength="dashLength"
+                    arcDashGap="dashGap"
                     arcDashInitialGap={() => Math.random() * 2}
-                    arcDashAnimateTime={2600}
+                    arcDashAnimateTime="dashTime"
                     arcsTransitionDuration={0}
-                    // Rings — pulse when a threat "lands"
-                    ringsData={ringsData}
+                    // Rings — persistent ambient beacons + landing pulses
+                    ringsData={rings}
                     ringColor={(r) => (t) => `rgba(${r.rgb},${1 - t})`}
-                    ringMaxRadius={6}
-                    ringPropagationSpeed={4}
-                    ringRepeatPeriod={800}
+                    ringMaxRadius={(r) => r.maxR}
+                    ringPropagationSpeed={(r) => r.speed}
+                    ringRepeatPeriod={(r) => r.repeatPeriod}
+                    ringAltitude={(r) => r.altitude}
                     // Sentinel Command label
                     labelsData={[{ lat: SENTINEL_HQ.lat, lng: SENTINEL_HQ.lng, text: "SENTINEL COMMAND" }]}
                     labelText="text"
-                    labelSize={1.1}
+                    labelSize={1.15}
                     labelColor={() => colors.accent}
-                    labelDotRadius={0.4}
-                    labelAltitude={0.012}
+                    labelDotRadius={0.45}
+                    labelAltitude={0.018}
                 />
             )}
 

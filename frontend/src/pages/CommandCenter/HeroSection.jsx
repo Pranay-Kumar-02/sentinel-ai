@@ -1,7 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — HeroSection
-// Full-viewport cinematic hero. The IntelGlobe IS the identity.
-// No scanner. No textarea. Platform introduction only.
+// SENTINEL AI — HeroSection (v2 — GLOBE AS IMMERSIVE BACKGROUND)
+// Previously the IntelGlobe sat boxed in the right grid column at a fixed
+// 460px size — contained, icon-like. This version makes it a full-bleed
+// background layer that dominates and bleeds past the section edges (safely
+// clipped by the section's existing overflow:hidden), with the text content
+// layered on top. The globe no longer needs a `size` prop — it fills
+// whatever container it's given.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { motion } from "framer-motion";
@@ -37,6 +41,21 @@ export default function HeroSection({ onNavigate }) {
             padding: "100px 48px 60px",
             overflow: "hidden",
         }}>
+            {/* ── Globe — full-bleed background layer, bleeds past section edges ── */}
+            <div
+                className="hero-globe-layer"
+                style={{
+                    position: "absolute",
+                    top: "-4%",
+                    right: "-2%",
+                    width: "60%",
+                    height: "108%",
+                    zIndex: 0,
+                }}
+            >
+                <IntelGlobe />
+            </div>
+
             <motion.div
                 variants={heroContainer}
                 initial="hidden"
@@ -49,6 +68,8 @@ export default function HeroSection({ onNavigate }) {
                     gridTemplateColumns: "1.1fr 0.9fr",
                     gap: 48,
                     alignItems: "center",
+                    position: "relative",
+                    zIndex: 1,
                 }}
                 className="hero-grid"
             >
@@ -106,7 +127,7 @@ export default function HeroSection({ onNavigate }) {
                                 WebkitTextFillColor: "transparent",
                                 backgroundClip: "text",
                                 color: "transparent",
-                                paddingRight: "0.05em", // prevents clipping of italic/descenders
+                                paddingRight: "0.05em",
                             }}>
                                 Intelligence,
                             </span>
@@ -234,18 +255,11 @@ export default function HeroSection({ onNavigate }) {
                     </motion.div>
                 </div>
 
-                {/* ── Right: Intelligence Globe ─────────────────── */}
-                <motion.div
-                    variants={heroItem}
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        position: "relative",
-                    }}
-                >
-                    <IntelGlobe size={460} />
-                </motion.div>
+                {/* ── Right column — intentionally empty. The globe now renders as an
+                     independent full-bleed background layer above, not confined to
+                     this grid cell. This div only preserves the original text-width
+                     proportions of the "1.1fr 0.9fr" grid split. ─────────────────── */}
+                <div aria-hidden="true" />
             </motion.div>
 
             {/* Scroll hint */}
@@ -262,6 +276,7 @@ export default function HeroSection({ onNavigate }) {
                     flexDirection: "column",
                     alignItems: "center",
                     gap: 8,
+                    zIndex: 1,
                 }}
             >
                 <span style={{
@@ -302,6 +317,13 @@ export default function HeroSection({ onNavigate }) {
                     .hero-grid {
                         grid-template-columns: 1fr !important;
                         text-align: center;
+                    }
+                    .hero-globe-layer {
+                        top: -8% !important;
+                        right: -20% !important;
+                        width: 100% !important;
+                        height: 60% !important;
+                        opacity: 0.55;
                     }
                 }
             `}</style>

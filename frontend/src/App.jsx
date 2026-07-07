@@ -44,6 +44,8 @@ import CursorTrail from "./components/Cursor/CursorTrail";
 import Sidebar from "./components/Sidebar/Sidebar";
 import TopBar from "./components/TopBar/TopBar";
 import LoadingSequence from "./components/LoadingSequence/LoadingSequence";
+import CommandPalette from "./components/CommandPalette/CommandPalette";
+import Workspace from "./pages/Workspace";
 
 // ── Pages — lazy (code-splitting) ─────────────────────────────────────────────
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
@@ -76,6 +78,7 @@ const ROUTES = {
   "/learn": Learn,
   "/settings": Settings,
   "/about": About,
+  "/workspace": Workspace,
 };
 
 const PAGE_TITLES = {
@@ -89,6 +92,7 @@ const PAGE_TITLES = {
   "/learn": "Security Training — Sentinel AI",
   "/settings": "Settings — Sentinel AI",
   "/about": "About — Sentinel AI",
+  "/workspace": "Workspace — Sentinel AI",
 };
 
 // ── Page loader fallback ───────────────────────────────────────────────────────
@@ -245,7 +249,7 @@ function AppShell() {
   const [particleMode, setParticleMode] = useState("idle");
   const [activeVerdict, setActiveVerdict] = useState(null);
   const verdictTimerRef = useRef(null);
-
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // ── navigate — THE only routing function ──────────────────────────────────
   const navigate = useCallback((newPath) => {
     if (!ROUTES[newPath]) return;
@@ -269,10 +273,7 @@ function AppShell() {
   useEffect(() => {
     const style = document.createElement("style");
     style.id = "sentinel-cursor-override";
-    style.textContent = `
-            * { cursor: none !important; }
-            input, textarea, select { cursor: none !important; }
-        `;
+    style.textContent = "*, *::before, *::after { cursor: none !important; } #sentinel-cursor-override { pointer-events: none; }";
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
   }, []);
@@ -294,6 +295,17 @@ function AppShell() {
 
   useEffect(() => () => {
     if (verdictTimerRef.current) clearTimeout(verdictTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   // Global shortcuts
@@ -363,6 +375,14 @@ function AppShell() {
           onToggle={() => setCopilotOpen((v) => !v)}
           onClose={() => setCopilotOpen(false)}
           currentPath={path}
+        />
+        <CommandPalette
+          isOpen={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          onNavigate={(p) => { navigate(p); setPaletteOpen(false); }}
+          onAction={(action) => {
+            if (action === "copilot") setCopilotOpen(v => !v);
+          }}
         />
       </Suspense>
     </div>

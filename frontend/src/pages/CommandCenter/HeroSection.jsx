@@ -1,19 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — HeroSection (v2 — GLOBE AS IMMERSIVE BACKGROUND)
-// Previously the IntelGlobe sat boxed in the right grid column at a fixed
-// 460px size — contained, icon-like. This version makes it a full-bleed
-// background layer that dominates and bleeds past the section edges (safely
-// clipped by the section's existing overflow:hidden), with the text content
-// layered on top. The globe no longer needs a `size` prop — it fills
-// whatever container it's given.
+// SENTINEL AI — HeroSection (v3 — RESTRAINT, NOT MAXIMALISM)
+// Direction: Stripe's craft-in-the-details philosophy over a maximalist
+// centerpiece. The globe is no longer the whole show — it's one precise
+// instrument in a glass panel. What actually carries the "premium" feeling
+// here: a real animated gradient mesh (not a static background), a genuine
+// system-status readout using a real backend health check (not decorative
+// theater), and careful Framer Motion choreography — the same techniques
+// already used successfully elsewhere in this app, just applied with more
+// intention in the one place that matters most.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 import IntelGlobe from "../../components/IntelGlobe/IntelGlobe";
 import GlitchText from "../../components/Common/GlitchText";
 import Counter from "../../components/Common/Counter";
+import api from "../../utils/api";
 
 const heroContainer = {
     hidden: {},
@@ -28,6 +32,86 @@ const heroItem = {
     },
 };
 
+// ── Real system status readout — genuine backend check, not decoration ──────
+function SystemStatusReadout() {
+    const { colors } = useTheme();
+    const [lines, setLines] = useState([]);
+
+    useEffect(() => {
+        let mounted = true;
+        const steps = [
+            "LOADING INTELLIGENCE ENGINES",
+            "SYNCING THREAT FEED",
+        ];
+
+        let i = 0;
+        const interval = setInterval(() => {
+            if (!mounted) return;
+            if (i < steps.length) {
+                setLines((prev) => [...prev, { text: steps[i], ok: null }]);
+                i++;
+            } else {
+                clearInterval(interval);
+            }
+        }, 260);
+
+        api.health()
+            .then(() => {
+                if (mounted) setLines((prev) => [...prev, { text: "SENTINEL CORE", ok: true }]);
+            })
+            .catch(() => {
+                if (mounted) setLines((prev) => [...prev, { text: "SENTINEL CORE", ok: false }]);
+            });
+
+        return () => { mounted = false; clearInterval(interval); };
+    }, []);
+
+    return (
+        <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 3,
+            marginBottom: 18,
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.62rem",
+            letterSpacing: "0.06em",
+            minHeight: 54,
+        }}>
+            <AnimatePresence>
+                {lines.map((line, i) => (
+                    <motion.div
+                        key={line.text}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.3 }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, color: colors.textMuted }}
+                    >
+                        <span style={{ color: colors.textDim }}>{`>`}</span>
+                        <span>{line.text}</span>
+                        {line.ok !== null && (
+                            <span style={{
+                                color: line.ok ? colors.green : colors.red,
+                                fontWeight: 700,
+                            }}>
+                                {line.ok ? "ONLINE" : "OFFLINE"}
+                            </span>
+                        )}
+                        {line.ok === null && (
+                            <motion.span
+                                animate={{ opacity: [1, 0.3, 1] }}
+                                transition={{ duration: 0.8, repeat: Infinity }}
+                                style={{ color: colors.accent }}
+                            >
+                                ···
+                            </motion.span>
+                        )}
+                    </motion.div>
+                ))}
+            </AnimatePresence>
+        </div>
+    );
+}
+
 export default function HeroSection({ onNavigate }) {
     const { colors, gradients } = useTheme();
     const { setCursor, resetCursor } = useCursor();
@@ -41,19 +125,44 @@ export default function HeroSection({ onNavigate }) {
             padding: "100px 48px 60px",
             overflow: "hidden",
         }}>
-            {/* ── Globe — full-bleed background layer, bleeds past section edges ── */}
-            <div
-                className="hero-globe-layer"
-                style={{
-                    position: "absolute",
-                    top: "-4%",
-                    right: "-2%",
-                    width: "60%",
-                    height: "108%",
-                    zIndex: 0,
-                }}
-            >
-                <IntelGlobe />
+            {/* ── Animated gradient mesh — the actual source of "premium" here,
+                 not a giant centerpiece object. Subtle, slow, always moving. ── */}
+            <div style={{ position: "absolute", inset: 0, zIndex: 0, overflow: "hidden" }}>
+                <motion.div
+                    animate={{
+                        x: [0, 60, -30, 0],
+                        y: [0, -40, 30, 0],
+                        scale: [1, 1.15, 1.05, 1],
+                    }}
+                    transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
+                    style={{
+                        position: "absolute", top: "-10%", left: "5%",
+                        width: 520, height: 520, borderRadius: "50%",
+                        background: colors.accent, opacity: 0.12, filter: "blur(120px)",
+                    }}
+                />
+                <motion.div
+                    animate={{
+                        x: [0, -50, 40, 0],
+                        y: [0, 40, -20, 0],
+                        scale: [1, 1.1, 0.95, 1],
+                    }}
+                    transition={{ duration: 32, repeat: Infinity, ease: "easeInOut" }}
+                    style={{
+                        position: "absolute", bottom: "-15%", right: "10%",
+                        width: 620, height: 620, borderRadius: "50%",
+                        background: colors.purple ?? colors.accent, opacity: 0.1, filter: "blur(140px)",
+                    }}
+                />
+                {/* Thin technical grid — restrained, not busy */}
+                <div style={{
+                    position: "absolute", inset: 0,
+                    backgroundImage: `linear-gradient(${colors.border} 1px, transparent 1px), linear-gradient(90deg, ${colors.border} 1px, transparent 1px)`,
+                    backgroundSize: "64px 64px",
+                    opacity: 0.25,
+                    maskImage: "radial-gradient(ellipse at 30% 50%, black 0%, transparent 70%)",
+                    WebkitMaskImage: "radial-gradient(ellipse at 30% 50%, black 0%, transparent 70%)",
+                }} />
             </div>
 
             <motion.div
@@ -65,8 +174,8 @@ export default function HeroSection({ onNavigate }) {
                     margin: "0 auto",
                     width: "100%",
                     display: "grid",
-                    gridTemplateColumns: "1.1fr 0.9fr",
-                    gap: 48,
+                    gridTemplateColumns: "1.15fr 0.85fr",
+                    gap: 56,
                     alignItems: "center",
                     position: "relative",
                     zIndex: 1,
@@ -75,6 +184,10 @@ export default function HeroSection({ onNavigate }) {
             >
                 {/* ── Left: Identity & Copy ─────────────────────── */}
                 <div>
+                    <motion.div variants={heroItem}>
+                        <SystemStatusReadout />
+                    </motion.div>
+
                     {/* Eyebrow badge */}
                     <motion.div variants={heroItem} style={{
                         display: "inline-flex",
@@ -255,11 +368,50 @@ export default function HeroSection({ onNavigate }) {
                     </motion.div>
                 </div>
 
-                {/* ── Right column — intentionally empty. The globe now renders as an
-                     independent full-bleed background layer above, not confined to
-                     this grid cell. This div only preserves the original text-width
-                     proportions of the "1.1fr 0.9fr" grid split. ─────────────────── */}
-                <div aria-hidden="true" />
+                {/* ── Right: Globe framed as a precise instrument panel ────── */}
+                <motion.div variants={heroItem} style={{ position: "relative" }}>
+                    <div style={{
+                        position: "relative",
+                        width: "100%",
+                        aspectRatio: "1 / 1",
+                        maxWidth: 420,
+                        margin: "0 auto",
+                        borderRadius: 20,
+                        overflow: "hidden",
+                        background: colors.bgSurface,
+                        border: `1px solid ${colors.border}`,
+                        boxShadow: `0 20px 60px rgba(0,0,0,0.4)`,
+                    }}>
+                        <IntelGlobe maxThreats={10} />
+
+                        {/* Panel label — instrument, not decoration */}
+                        <div style={{
+                            position: "absolute",
+                            top: 14, left: 14,
+                            display: "flex", alignItems: "center", gap: 6,
+                            padding: "4px 10px",
+                            background: colors.bgGlass,
+                            backdropFilter: "blur(12px)",
+                            border: `1px solid ${colors.border}`,
+                            borderRadius: 999,
+                            zIndex: 2,
+                        }}>
+                            <motion.div
+                                animate={{ opacity: [1, 0.3, 1] }}
+                                transition={{ duration: 1, repeat: Infinity }}
+                                style={{ width: 5, height: 5, borderRadius: "50%", background: colors.green }}
+                            />
+                            <span style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: "0.58rem",
+                                color: colors.textSub,
+                                letterSpacing: "0.08em",
+                            }}>
+                                GLOBAL THREAT INSTRUMENT
+                            </span>
+                        </div>
+                    </div>
+                </motion.div>
             </motion.div>
 
             {/* Scroll hint */}
@@ -317,13 +469,6 @@ export default function HeroSection({ onNavigate }) {
                     .hero-grid {
                         grid-template-columns: 1fr !important;
                         text-align: center;
-                    }
-                    .hero-globe-layer {
-                        top: -8% !important;
-                        right: -20% !important;
-                        width: 100% !important;
-                        height: 60% !important;
-                        opacity: 0.55;
                     }
                 }
             `}</style>

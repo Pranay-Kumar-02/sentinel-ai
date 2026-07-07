@@ -7,8 +7,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
-import { useTheme } from "../hooks/useTheme";
-import { useCursor, CURSOR_STATES } from "../context/CursorContext";
+import { useTheme } from "../../hooks/useTheme";
+import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 
 // ── All searchable commands ───────────────────────────────────────────────────
 const ALL_COMMANDS = [
@@ -120,8 +120,9 @@ export default function CommandPalette({ isOpen, onClose, onNavigate, onAction }
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.15 }}
                         onClick={onClose}
+                        // Backdrop
                         style={{
-                            position: "fixed", inset: 0, zIndex: 99998,
+                            position: "fixed", inset: 0, zIndex: 9000,
                             background: "rgba(0,0,0,0.75)",
                             backdropFilter: "blur(8px)",
                         }}
@@ -140,7 +141,7 @@ export default function CommandPalette({ isOpen, onClose, onNavigate, onAction }
                             transform: "translateX(-50%)",
                             width: "min(640px, 90vw)",
                             maxHeight: "70vh",
-                            zIndex: 99999,
+                            zIndex: 9001,
                             background: colors.bgCard,
                             backdropFilter: "var(--backdrop-blur)",
                             border: `1px solid ${colors.borderHover}`,

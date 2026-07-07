@@ -87,6 +87,13 @@ const NAV_ITEMS = [
         path: "/about",
         group: "system",
     },
+    {
+        id: "workspace",
+        label: "Workspace",
+        icon: "🚀",
+        path: "/workspace",
+        group: "main",
+    },
 ];
 
 const GROUP_LABELS = {

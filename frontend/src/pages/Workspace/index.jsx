@@ -6,8 +6,8 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useTheme } from "../hooks/useTheme";
-import { useCursor, CURSOR_STATES } from "../context/CursorContext";
+import { useTheme } from "../../hooks/useTheme";
+import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 
 const TOOLS = [
     {

@@ -1,122 +1,161 @@
-import { useState, useRef } from "react";
+// ─────────────────────────────────────────────────────────────────────────────
+// SENTINEL AI — CopilotOrb
+// The floating trigger button for AI Copilot.
+// Premium glassmorphism orb with pulse rings, glow, and state animations.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Cpu, Sparkles, X } from "lucide-react";
 import { useTheme } from "../../hooks/useTheme";
-import { springs, loops } from "../../animations/spring";
 
 export default function CopilotOrb({ isOpen, onClick }) {
-    const { accent, accentGlow, purple, purpleGlow, bgCard, border } = useTheme();
+    const { colors } = useTheme();
     const [hovered, setHovered] = useState(false);
+    const [pulse, setPulse] = useState(false);
+
+    // Pulse every 8s to draw attention when closed
+    useEffect(() => {
+        if (isOpen) return;
+        const interval = setInterval(() => {
+            setPulse(true);
+            setTimeout(() => setPulse(false), 2000);
+        }, 8000);
+        return () => clearInterval(interval);
+    }, [isOpen]);
 
     return (
         <motion.button
             onClick={onClick}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
-            whileHover={{ scale: 1.12 }}
             whileTap={{ scale: 0.92 }}
-            transition={springs.bouncy}
-            className="relative flex items-center justify-center"
             style={{
-                width: 52,
-                height: 52,
+                position: "relative",
+                width: 56,
+                height: 56,
                 borderRadius: "50%",
-                background: `linear-gradient(135deg, ${purple} 0%, ${accent} 100%)`,
-                boxShadow: hovered
-                    ? `0 0 40px ${purpleGlow}, 0 0 80px ${accentGlow}, 0 8px 32px rgba(0,0,0,0.4)`
-                    : `0 0 24px ${purpleGlow}, 0 4px 20px rgba(0,0,0,0.3)`,
-                border: `1px solid rgba(255,255,255,0.15)`,
+                border: "none",
                 cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: isOpen
+                    ? `linear-gradient(135deg, ${colors.purple} 0%, ${colors.accent} 100%)`
+                    : `linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)`,
+                boxShadow: isOpen
+                    ? `0 0 0 1px ${colors.purple}60, 0 8px 32px ${colors.purple}60, 0 0 60px ${colors.purple}30`
+                    : hovered
+                        ? `0 0 0 1px ${colors.purple}40, 0 8px 32px ${colors.purple}50, 0 0 40px ${colors.purple}25`
+                        : `0 0 0 1px ${colors.purple}30, 0 4px 20px ${colors.purple}40`,
+                transition: "box-shadow 0.3s ease, background 0.3s ease",
+                zIndex: 2,
             }}
-            aria-label="Toggle AI Copilot"
         >
-            {/* Pulse rings */}
-            {!isOpen && (
+            {/* Pulse rings when attention needed */}
+            {(pulse || hovered) && !isOpen && (
                 <>
                     {[1, 2].map((i) => (
                         <motion.div
                             key={i}
-                            className="absolute rounded-full pointer-events-none"
+                            initial={{ scale: 1, opacity: 0.5 }}
+                            animate={{ scale: 2.5, opacity: 0 }}
+                            transition={{ duration: 1.5, delay: i * 0.3, ease: "easeOut" }}
                             style={{
-                                inset: -i * 10,
-                                border: `1px solid ${purple}`,
-                                opacity: 0,
-                            }}
-                            animate={{ scale: [1, 1.6], opacity: [0.5, 0] }}
-                            transition={{
-                                duration: 2.5,
-                                repeat: Infinity,
-                                delay: i * 0.7,
-                                ease: "easeOut",
+                                position: "absolute",
+                                inset: 0,
+                                borderRadius: "50%",
+                                border: `1px solid ${colors.purple}`,
+                                pointerEvents: "none",
                             }}
                         />
                     ))}
                 </>
             )}
 
-            {/* Rotating ring */}
-            <motion.div
-                className="absolute rounded-full pointer-events-none"
-                style={{
-                    inset: -3,
-                    border: `1px dashed rgba(255,255,255,0.2)`,
-                    borderRadius: "50%",
-                }}
-                animate={{ rotate: 360 }}
-                transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-            />
+            {/* Rotating ring when open */}
+            {isOpen && (
+                <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 3, ease: "linear", repeat: Infinity }}
+                    style={{
+                        position: "absolute",
+                        inset: -3,
+                        borderRadius: "50%",
+                        border: `1.5px dashed ${colors.purple}60`,
+                        pointerEvents: "none",
+                    }}
+                />
+            )}
 
             {/* Icon */}
             <AnimatePresence mode="wait">
                 {isOpen ? (
                     <motion.div
                         key="close"
-                        initial={{ scale: 0, rotate: -90 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        exit={{ scale: 0, rotate: 90 }}
-                        transition={springs.snappy}
+                        initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
+                        animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                        exit={{ rotate: 90, opacity: 0, scale: 0.6 }}
+                        transition={{ duration: 0.2 }}
+                        style={{ color: "#fff", fontSize: "1.1rem", lineHeight: 1 }}
                     >
-                        <X size={20} color="white" />
+                        ✕
                     </motion.div>
                 ) : (
                     <motion.div
-                        key="ai"
-                        initial={{ scale: 0, rotate: 90 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        exit={{ scale: 0, rotate: -90 }}
-                        transition={springs.snappy}
-                        className="relative"
+                        key="open"
+                        initial={{ rotate: 90, opacity: 0, scale: 0.6 }}
+                        animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                        exit={{ rotate: -90, opacity: 0, scale: 0.6 }}
+                        transition={{ duration: 0.2 }}
+                        style={{ fontSize: "1.4rem", lineHeight: 1 }}
                     >
-                        <Cpu size={20} color="white" />
-                        {/* Sparkle dot */}
-                        <motion.div
-                            className="absolute -top-1 -right-1 w-2 h-2 rounded-full"
-                            style={{ background: accent }}
-                            animate={{ scale: [1, 1.4, 1], opacity: [1, 0.5, 1] }}
-                            transition={{ duration: 1.5, repeat: Infinity }}
-                        />
+                        🤖
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* Hover label */}
+            {/* Tooltip */}
             <AnimatePresence>
                 {hovered && !isOpen && (
                     <motion.div
                         initial={{ opacity: 0, x: 8, scale: 0.9 }}
                         animate={{ opacity: 1, x: 0, scale: 1 }}
                         exit={{ opacity: 0, x: 8, scale: 0.9 }}
-                        transition={springs.crisp}
-                        className="absolute right-full mr-3 whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-bold pointer-events-none"
+                        transition={{ duration: 0.15 }}
                         style={{
-                            background: bgCard,
-                            border: `1px solid ${border}`,
-                            color: "white",
-                            backdropFilter: "blur(12px)",
-                            boxShadow: `0 4px 20px rgba(0,0,0,0.3)`,
+                            position: "absolute",
+                            right: "calc(100% + 12px)",
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            background: colors.bgCard,
+                            backdropFilter: "blur(20px)",
+                            border: `1px solid ${colors.purple}40`,
+                            borderRadius: 10,
+                            padding: "8px 14px",
+                            whiteSpace: "nowrap",
+                            pointerEvents: "none",
+                            boxShadow: `0 8px 32px rgba(0,0,0,0.4)`,
                         }}
                     >
-                        AI Copilot
+                        <div style={{ fontFamily: "var(--font-body)", fontSize: "0.8rem", fontWeight: 600, color: colors.text, marginBottom: 2 }}>
+                            AI Copilot
+                        </div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: colors.textMuted }}>
+                            Ctrl+Shift+A
+                        </div>
+                        {/* Arrow */}
+                        <div style={{
+                            position: "absolute",
+                            right: -5,
+                            top: "50%",
+                            transform: "translateY(-50%) rotate(45deg)",
+                            width: 8,
+                            height: 8,
+                            background: colors.bgCard,
+                            border: `1px solid ${colors.purple}40`,
+                            borderLeft: "none",
+                            borderBottom: "none",
+                        }} />
                     </motion.div>
                 )}
             </AnimatePresence>

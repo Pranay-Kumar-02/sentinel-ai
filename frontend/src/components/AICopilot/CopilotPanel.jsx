@@ -1,424 +1,476 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// SENTINEL AI — CopilotPanel
+// Premium AI Copilot chat panel. Connects to FastAPI backend.
+// Context-aware — knows current scan results, suggests actions.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-    Cpu, Send, RotateCcw, Copy, ChevronDown,
-    Sparkles, Shield, Search, BookOpen, Zap,
-    AlertTriangle, CheckCircle, Loader
-} from "lucide-react";
 import { useTheme } from "../../hooks/useTheme";
-import { springs } from "../../animations/spring";
 
-const API = "http://127.0.0.1:8000";
+const BACKEND = "http://127.0.0.1:8000";
 
-// ── Quick Action Chips ─────────────────────────────────────────────────────
-const QUICK_ACTIONS = [
-    { icon: Shield, label: "Explain verdict", prompt: "Explain the current threat verdict in simple terms." },
-    { icon: Search, label: "What's an IOC?", prompt: "What are Indicators of Compromise and why do they matter?" },
-    { icon: AlertTriangle, label: "How to stay safe?", prompt: "What steps should I take to protect myself from this type of attack?" },
-    { icon: BookOpen, label: "Explain MITRE", prompt: "Explain what MITRE ATT&CK is and how it helps in cybersecurity." },
-    { icon: Zap, label: "What is phishing?", prompt: "Explain phishing attacks and how to recognize them." },
-    { icon: CheckCircle, label: "Am I safe?", prompt: "Based on what you know, am I currently safe? What should I watch out for?" },
+// ── Suggested prompts based on context ───────────────────────────────────────
+const SUGGESTIONS = [
+    { icon: "🔍", text: "What are the top phishing indicators I should know?" },
+    { icon: "🛡️", text: "How do I check if a URL is safe before clicking?" },
+    { icon: "📧", text: "What makes an email header suspicious?" },
+    { icon: "🌐", text: "Explain MITRE ATT&CK framework simply" },
+    { icon: "⚡", text: "What should I do if I clicked a suspicious link?" },
+    { icon: "🔓", text: "How do I check if my email was breached?" },
 ];
 
-// ── Message Bubble ─────────────────────────────────────────────────────────
-function MessageBubble({ msg, accent, purple, bgSurface, border, textSub }) {
-    const [copied, setCopied] = useState(false);
-    const isAI = msg.role === "assistant";
-
-    const copy = () => {
-        navigator.clipboard.writeText(msg.content);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
+// ── Message bubble ────────────────────────────────────────────────────────────
+function MessageBubble({ msg, colors }) {
+    const isUser = msg.role === "user";
 
     return (
         <motion.div
             initial={{ opacity: 0, y: 12, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={springs.smooth}
-            className={`flex gap-3 ${isAI ? "flex-row" : "flex-row-reverse"}`}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            style={{
+                display: "flex",
+                flexDirection: isUser ? "row-reverse" : "row",
+                gap: 10,
+                alignItems: "flex-end",
+                marginBottom: 16,
+            }}
         >
             {/* Avatar */}
-            {isAI && (
-                <div
-                    className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center mt-1"
-                    style={{
-                        background: `linear-gradient(135deg, ${purple}, ${accent})`,
-                        boxShadow: `0 0 12px ${purple}50`,
-                    }}
-                >
-                    <Cpu size={13} color="white" />
-                </div>
-            )}
+            <div style={{
+                width: 30,
+                height: 30,
+                borderRadius: "50%",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.85rem",
+                background: isUser
+                    ? `${colors.accent}20`
+                    : `linear-gradient(135deg, #7c3aed, #4f46e5)`,
+                border: `1px solid ${isUser ? colors.accent + "30" : colors.purple + "50"}`,
+            }}>
+                {isUser ? "👤" : "🤖"}
+            </div>
 
             {/* Bubble */}
-            <div className={`group max-w-[85%] space-y-1 ${isAI ? "" : "items-end flex flex-col"}`}>
-                <div
-                    className="px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed relative"
-                    style={{
-                        background: isAI
-                            ? `${bgSurface}`
-                            : `linear-gradient(135deg, ${purple}25, ${accent}20)`,
-                        border: `1px solid ${isAI ? border : accent + "30"}`,
-                        color: "var(--text)",
-                        borderRadius: isAI
-                            ? "4px 16px 16px 16px"
-                            : "16px 4px 16px 16px",
-                    }}
-                >
-                    {msg.loading ? (
-                        <div className="flex items-center gap-2">
-                            {[0, 1, 2].map((i) => (
-                                <motion.div
-                                    key={i}
-                                    className="w-1.5 h-1.5 rounded-full"
-                                    style={{ background: accent }}
-                                    animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.2, 0.8] }}
-                                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
-                    )}
-                </div>
-
-                {/* Copy button */}
-                {isAI && !msg.loading && (
-                    <motion.button
-                        onClick={copy}
-                        initial={{ opacity: 0 }}
-                        whileInView={{ opacity: 1 }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg"
-                        style={{ color: textSub, border: `1px solid ${border}` }}
-                    >
-                        <Copy size={9} />
-                        {copied ? "Copied!" : "Copy"}
-                    </motion.button>
+            <div style={{
+                maxWidth: "78%",
+                padding: "10px 14px",
+                borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                background: isUser
+                    ? `linear-gradient(135deg, ${colors.accent}20, ${colors.purple}15)`
+                    : colors.bgSurface,
+                border: `1px solid ${isUser ? colors.accent + "25" : colors.border}`,
+                fontFamily: "var(--font-body)",
+                fontSize: "0.84rem",
+                color: colors.text,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+            }}>
+                {msg.content}
+                {msg.loading && (
+                    <span style={{ display: "inline-flex", gap: 3, marginLeft: 6, verticalAlign: "middle" }}>
+                        {[0, 1, 2].map(i => (
+                            <motion.span
+                                key={i}
+                                animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
+                                transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.15 }}
+                                style={{
+                                    display: "inline-block",
+                                    width: 5,
+                                    height: 5,
+                                    borderRadius: "50%",
+                                    background: colors.purple,
+                                }}
+                            />
+                        ))}
+                    </span>
                 )}
             </div>
         </motion.div>
     );
 }
 
-// ── Mode Tabs ──────────────────────────────────────────────────────────────
-const MODES = [
-    { id: "simple", label: "Simple", desc: "Plain English" },
-    { id: "analyst", label: "Analyst", desc: "Technical depth" },
-    { id: "teaching", label: "Learn", desc: "Explain & educate" },
-];
-
+// ── Main panel ────────────────────────────────────────────────────────────────
 export default function CopilotPanel({ isOpen, scanResult, emailResult, forensicsResult }) {
-    const {
-        accent, accentGlow, accentSoft, purple, purpleGlow, purpleSoft,
-        bgCard, bgSurface, bgInput, border, borderHover,
-        text, textSub, textMuted, amber, green,
-    } = useTheme();
-
+    const { colors } = useTheme();
     const [messages, setMessages] = useState([
         {
             id: "welcome",
             role: "assistant",
-            content: "Hi! I'm Sentinel AI Copilot 🛡️\n\nI can help you understand threat analysis results, explain cybersecurity concepts, and guide your investigation.\n\nWhat would you like to know?",
-        },
+            content: "Hey! I'm your Sentinel AI Copilot 🛡️\n\nI can help you understand threats, explain scan results, guide investigations, or answer any cybersecurity question. What would you like to know?",
+        }
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
-    const [mode, setMode] = useState("simple");
+    const [showSuggestions, setShowSuggestions] = useState(true);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const abortRef = useRef(null);
 
-    // Auto-scroll
+    useEffect(() => {
+        if (isOpen) {
+            setTimeout(() => inputRef.current?.focus(), 100);
+        }
+    }, [isOpen]);
+
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Focus input when panel opens
-    useEffect(() => {
-        if (isOpen) {
-            setTimeout(() => inputRef.current?.focus(), 300);
-        }
-    }, [isOpen]);
-
-    // Build context from current scan results
+    // Build context from scan results
     const buildContext = useCallback(() => {
-        let ctx = `You are Sentinel AI Copilot — an expert cybersecurity assistant embedded in the Sentinel AI Threat Intelligence Platform.\n\n`;
-        ctx += `Mode: ${mode === "simple" ? "Plain English for non-technical users" : mode === "analyst" ? "Technical depth for security analysts" : "Educational — explain concepts clearly with examples"}\n\n`;
-
-        if (scanResult) {
-            const v = scanResult?.master_verdict || scanResult?.summary?.verdict || "UNKNOWN";
-            const ai = scanResult?.llm_analysis?.ai_analysis || scanResult?.ai_analysis || {};
-            ctx += `CURRENT SCAN RESULTS:\n`;
-            ctx += `Verdict: ${v}\n`;
-            ctx += `Confidence: ${scanResult?.summary?.confidence || 0}%\n`;
-            ctx += `Attack Type: ${ai?.attack_type || "Unknown"}\n`;
-            ctx += `Explanation: ${ai?.explanation || "N/A"}\n`;
-            ctx += `MITRE: ${ai?.mitre_attack || "N/A"}\n`;
-            ctx += `IOCs: ${JSON.stringify(scanResult?.llm_analysis?.auto_extracted || scanResult?.auto_extracted || {})}\n\n`;
+        const parts = [];
+        if (scanResult?.master_verdict) {
+            parts.push(`Current scan verdict: ${scanResult.master_verdict}`);
+            if (scanResult.llm_analysis?.explanation) {
+                parts.push(`Analysis: ${scanResult.llm_analysis.explanation}`);
+            }
         }
-
-        if (emailResult) {
-            ctx += `EMAIL ANALYSIS:\n`;
-            ctx += `Verdict: ${emailResult?.master_verdict || "UNKNOWN"}\n`;
-            ctx += `SPF: ${emailResult?.email_forensics?.authentication?.spf?.status || "Unknown"}\n`;
-            ctx += `DKIM: ${emailResult?.email_forensics?.authentication?.dkim?.status || "Unknown"}\n`;
-            ctx += `DMARC: ${emailResult?.email_forensics?.authentication?.dmarc?.status || "Unknown"}\n\n`;
+        if (emailResult?.authentication) {
+            parts.push(`Email authentication: SPF=${emailResult.authentication.spf}, DKIM=${emailResult.authentication.dkim}, DMARC=${emailResult.authentication.dmarc}`);
         }
-
-        if (forensicsResult) {
-            ctx += `FORENSICS ANALYSIS:\n`;
-            ctx += `File Type: ${forensicsResult?.forensics?.file_type || "Unknown"}\n`;
-            ctx += `Verdict: ${forensicsResult?.master_verdict || "UNKNOWN"}\n\n`;
+        if (forensicsResult?.extracted_text) {
+            parts.push(`Extracted text: ${forensicsResult.extracted_text.slice(0, 200)}`);
         }
+        return parts.length > 0 ? `\n\nContext from current session:\n${parts.join("\n")}` : "";
+    }, [scanResult, emailResult, forensicsResult]);
 
-        ctx += `Answer the user's question helpfully and accurately based on the context above.`;
-        return ctx;
-    }, [scanResult, emailResult, forensicsResult, mode]);
-
-    // Send message
     const sendMessage = useCallback(async (text) => {
-        if (!text?.trim() || loading) return;
+        const userText = (text ?? input).trim();
+        if (!userText || loading) return;
 
-        const userMsg = {
-            id: Date.now().toString(),
-            role: "user",
-            content: text.trim(),
-        };
-
-        const loadingMsg = {
-            id: "loading",
-            role: "assistant",
-            content: "",
-            loading: true,
-        };
-
-        setMessages((prev) => [...prev, userMsg, loadingMsg]);
         setInput("");
+        setShowSuggestions(false);
         setLoading(true);
 
+        const userMsg = { id: Date.now().toString(), role: "user", content: userText };
+        const aiMsg = { id: Date.now().toString() + "_ai", role: "assistant", content: "", loading: true };
+
+        setMessages(prev => [...prev, userMsg, aiMsg]);
+
         try {
-            const response = await fetch("https://api.anthropic.com/v1/messages", {
+            const context = buildContext();
+            const systemPrompt = `You are Sentinel AI Copilot, an expert cybersecurity assistant embedded in the Sentinel AI platform — India's premier AI-native Cyber Threat Intelligence platform.
+
+You help users understand:
+- Phishing, malware, social engineering, and cyber fraud
+- Email authentication (SPF, DKIM, DMARC)
+- OSINT and domain intelligence
+- MITRE ATT&CK framework
+- India-specific cyber threats (UPI fraud, KYC scams, etc.)
+- How to stay safe online
+
+Be concise, clear, and actionable. Use simple language unless the user seems technical. Always be helpful and never refuse security education questions.${context}`;
+
+            const response = await fetch(`${BACKEND}/chat`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    model: "claude-sonnet-4-6",
-                    max_tokens: 1000,
-                    system: buildContext(),
-                    messages: [
-                        ...messages
-                            .filter((m) => !m.loading && m.id !== "welcome")
-                            .map((m) => ({ role: m.role, content: m.content })),
-                        { role: "user", content: text.trim() },
-                    ],
+                    message: userText,
+                    system: systemPrompt,
+                    history: messages.slice(-6).map(m => ({
+                        role: m.role,
+                        content: m.content,
+                    })),
                 }),
+                signal: (abortRef.current = new AbortController()).signal,
             });
 
-            const data = await response.json();
-            const reply = data?.content?.[0]?.text || "I couldn't process that. Please try again.";
+            if (!response.ok) throw new Error(`Backend error: ${response.status}`);
 
-            setMessages((prev) => [
-                ...prev.filter((m) => m.id !== "loading"),
-                { id: Date.now().toString(), role: "assistant", content: reply },
-            ]);
-        } catch {
-            setMessages((prev) => [
-                ...prev.filter((m) => m.id !== "loading"),
-                {
-                    id: Date.now().toString(),
-                    role: "assistant",
-                    content: "⚠️ Connection error. Make sure the backend is running and try again.",
-                },
-            ]);
+            const data = await response.json();
+            const reply = data.response ?? data.message ?? data.content ?? "I couldn't get a response. Please try again.";
+
+            setMessages(prev => prev.map(m =>
+                m.id === aiMsg.id ? { ...m, content: reply, loading: false } : m
+            ));
+        } catch (err) {
+            if (err.name === "AbortError") return;
+
+            // Fallback response when backend is offline
+            const fallback = getFallbackResponse(userText);
+            setMessages(prev => prev.map(m =>
+                m.id === aiMsg.id ? { ...m, content: fallback, loading: false } : m
+            ));
         } finally {
             setLoading(false);
         }
-    }, [loading, messages, buildContext]);
+    }, [input, loading, messages, buildContext]);
 
-    const handleKeyDown = (e) => {
+    function getFallbackResponse(query) {
+        const q = query.toLowerCase();
+        if (q.includes("phishing"))
+            return "Phishing attacks trick you into revealing credentials or installing malware. Key red flags: urgent language, suspicious sender domains, requests for OTP or passwords, and URLs that look slightly wrong (e.g. 'amaz0n.com'). Always verify the sender domain before clicking.";
+        if (q.includes("upi") || q.includes("sbi") || q.includes("hdfc") || q.includes("bank"))
+            return "Indian banking scams typically involve fake KYC alerts, UPI collect requests from unknown numbers, or fake customer care numbers. Remember: No bank ever asks for your OTP, PIN, or password over call, SMS, or email. When in doubt, call the official number on the back of your card.";
+        if (q.includes("email") || q.includes("spf") || q.includes("dkim") || q.includes("dmarc"))
+            return "Email authentication works in 3 layers:\n• **SPF** — verifies the sending server is authorized\n• **DKIM** — cryptographic signature proving the email wasn't modified\n• **DMARC** — policy telling receivers what to do when SPF/DKIM fail\nIf all 3 fail, the email is almost certainly spoofed.";
+        if (q.includes("safe") || q.includes("clicked"))
+            return "If you clicked a suspicious link:\n1. Don't enter any credentials on the page\n2. Close the browser tab immediately\n3. Run a scan on the URL using Sentinel's Threat Scanner\n4. Change passwords for any accounts you may have accessed\n5. Check for unusual activity in your accounts";
+        return "I'm currently in offline mode — my backend isn't connected. Start your FastAPI backend at localhost:8000 for full AI responses.\n\nIn the meantime, I can answer basic cybersecurity questions from my local knowledge base. What would you like to know?";
+    }
+
+    function handleKeyDown(e) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            sendMessage(input);
+            sendMessage();
         }
-    };
+    }
 
-    const clearChat = () => {
+    function clearChat() {
         setMessages([{
             id: "welcome",
             role: "assistant",
-            content: "Chat cleared! Ask me anything about cybersecurity or your current analysis. 🛡️",
+            content: "Chat cleared. How can I help you?",
         }]);
-    };
+        setShowSuggestions(true);
+    }
 
     return (
         <motion.div
-            initial={{ opacity: 0, scale: 0.92, y: 20, originX: 1, originY: 1 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.88, y: 16 }}
-            transition={springs.copilot}
-            className="flex flex-col overflow-hidden"
+            initial={{ opacity: 0, y: 20, scale: 0.95, filter: "blur(8px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: 20, scale: 0.95, filter: "blur(4px)" }}
+            transition={{ type: "spring", stiffness: 300, damping: 24 }}
             style={{
-                width: 360,
-                height: 520,
-                background: bgCard,
+                width: 380,
+                height: 560,
+                background: colors.bgCard,
                 backdropFilter: "blur(24px)",
-                border: `1px solid ${border}`,
+                border: `1px solid ${colors.purple}30`,
                 borderRadius: 20,
-                boxShadow: `0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px ${border}, 0 0 60px ${purpleGlow}`,
+                boxShadow: `0 0 0 1px ${colors.purple}15, 0 24px 80px rgba(0,0,0,0.5), 0 0 80px ${colors.purple}10`,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
             }}
         >
             {/* Header */}
-            <div
-                className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"
-                style={{ borderColor: border }}
-            >
-                <div className="flex items-center gap-2.5">
-                    <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center"
-                        style={{ background: `linear-gradient(135deg, ${purple}, ${accent})` }}
-                    >
-                        <Cpu size={13} color="white" />
+            <div style={{
+                padding: "14px 18px",
+                borderBottom: `1px solid ${colors.border}`,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: `linear-gradient(135deg, ${colors.purple}10, ${colors.accent}08)`,
+                flexShrink: 0,
+            }}>
+                {/* AI status dot */}
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                    <div style={{
+                        width: 36, height: 36, borderRadius: "50%",
+                        background: `linear-gradient(135deg, #7c3aed, #4f46e5)`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: "1.1rem",
+                        boxShadow: `0 0 16px ${colors.purple}50`,
+                    }}>
+                        🤖
                     </div>
-                    <div>
-                        <div className="text-xs font-bold" style={{ color: text }}>Sentinel Copilot</div>
-                        <div className="text-[10px] font-mono flex items-center gap-1" style={{ color: green }}>
-                            <motion.div
-                                className="w-1.5 h-1.5 rounded-full"
-                                style={{ background: green }}
-                                animate={{ opacity: [1, 0.3, 1] }}
-                                transition={{ duration: 1.5, repeat: Infinity }}
-                            />
-                            Online · {mode} mode
-                        </div>
+                    <motion.div
+                        animate={{ opacity: [1, 0.3, 1] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                        style={{
+                            position: "absolute", bottom: 0, right: 0,
+                            width: 10, height: 10, borderRadius: "50%",
+                            background: colors.green,
+                            border: `2px solid ${colors.bgCard}`,
+                            boxShadow: `0 0 6px ${colors.green}`,
+                        }}
+                    />
+                </div>
+
+                <div style={{ flex: 1 }}>
+                    <div style={{
+                        fontFamily: "var(--font-display)", fontSize: "0.88rem",
+                        fontWeight: 700, color: colors.text,
+                    }}>
+                        Sentinel Copilot
+                    </div>
+                    <div style={{
+                        fontFamily: "var(--font-mono)", fontSize: "0.62rem",
+                        color: colors.green,
+                    }}>
+                        ● AI Security Assistant
                     </div>
                 </div>
-                <button
+
+                {/* Clear button */}
+                <motion.button
                     onClick={clearChat}
-                    className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
-                    style={{ color: textMuted }}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    style={{
+                        width: 28, height: 28, borderRadius: 7,
+                        background: "transparent",
+                        border: `1px solid ${colors.border}`,
+                        cursor: "pointer", color: colors.textMuted,
+                        fontSize: "0.7rem",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
                     title="Clear chat"
                 >
-                    <RotateCcw size={13} />
-                </button>
-            </div>
-
-            {/* Mode Tabs */}
-            <div
-                className="flex gap-1 px-3 py-2 flex-shrink-0 border-b"
-                style={{ borderColor: border }}
-            >
-                {MODES.map((m) => (
-                    <button
-                        key={m.id}
-                        onClick={() => setMode(m.id)}
-                        className="flex-1 py-1 rounded-lg text-[10px] font-bold transition-all"
-                        style={{
-                            background: mode === m.id ? accentSoft : "transparent",
-                            color: mode === m.id ? accent : textMuted,
-                            border: `1px solid ${mode === m.id ? accent + "30" : "transparent"}`,
-                        }}
-                    >
-                        {m.label}
-                    </button>
-                ))}
+                    ⟳
+                </motion.button>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                {messages.map((msg) => (
-                    <MessageBubble
-                        key={msg.id}
-                        msg={msg}
-                        accent={accent}
-                        purple={purple}
-                        bgSurface={bgSurface}
-                        border={border}
-                        textSub={textSub}
-                    />
+            <div style={{
+                flex: 1, overflowY: "auto", padding: "16px 16px 0",
+                scrollbarWidth: "none",
+            }}>
+                {messages.map(msg => (
+                    <MessageBubble key={msg.id} msg={msg} colors={colors} />
                 ))}
+
+                {/* Suggestions */}
+                {showSuggestions && messages.length <= 1 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        style={{ marginBottom: 16 }}
+                    >
+                        <div style={{
+                            fontFamily: "var(--font-mono)", fontSize: "0.62rem",
+                            color: colors.textMuted, marginBottom: 10,
+                            letterSpacing: "0.08em", textTransform: "uppercase",
+                        }}>
+                            Quick questions
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {SUGGESTIONS.map((s, i) => (
+                                <motion.button
+                                    key={i}
+                                    onClick={() => sendMessage(s.text)}
+                                    initial={{ opacity: 0, x: -8 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: 0.1 + i * 0.05 }}
+                                    whileHover={{ x: 3, background: colors.accentSoft }}
+                                    style={{
+                                        display: "flex", alignItems: "center", gap: 8,
+                                        padding: "8px 12px",
+                                        background: colors.bgSurface,
+                                        border: `1px solid ${colors.border}`,
+                                        borderRadius: 8, cursor: "pointer",
+                                        textAlign: "left",
+                                        transition: "background 0.15s ease",
+                                    }}
+                                >
+                                    <span style={{ fontSize: "0.85rem", flexShrink: 0 }}>{s.icon}</span>
+                                    <span style={{
+                                        fontFamily: "var(--font-body)", fontSize: "0.76rem",
+                                        color: colors.textSub, lineHeight: 1.4,
+                                    }}>
+                                        {s.text}
+                                    </span>
+                                </motion.button>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
+
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Quick Actions */}
-            <div
-                className="px-3 py-2 border-t flex-shrink-0"
-                style={{ borderColor: border }}
-            >
-                <div
-                    className="text-[9px] font-mono uppercase tracking-widest mb-1.5"
-                    style={{ color: textMuted }}
-                >
-                    Quick Actions
-                </div>
-                <div className="flex flex-wrap gap-1">
-                    {QUICK_ACTIONS.slice(0, 4).map((action) => (
-                        <button
-                            key={action.label}
-                            onClick={() => sendMessage(action.prompt)}
-                            disabled={loading}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-mono transition-all hover:scale-105 active:scale-95"
-                            style={{
-                                background: purpleSoft,
-                                border: `1px solid ${purple}25`,
-                                color: textSub,
-                            }}
-                        >
-                            <action.icon size={9} style={{ color: purple }} />
-                            {action.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
             {/* Input */}
-            <div
-                className="px-3 pb-3 flex-shrink-0"
-            >
-                <div
-                    className="flex items-end gap-2 rounded-xl p-2"
-                    style={{
-                        background: bgInput,
-                        border: `1px solid ${border}`,
-                    }}
-                >
+            <div style={{
+                padding: "12px 14px",
+                borderTop: `1px solid ${colors.border}`,
+                flexShrink: 0,
+            }}>
+                {/* Context indicator */}
+                {(scanResult || emailResult || forensicsResult) && (
+                    <div style={{
+                        display: "flex", alignItems: "center", gap: 5,
+                        marginBottom: 8, padding: "4px 10px",
+                        background: colors.accentSoft,
+                        border: `1px solid ${colors.borderHover}`,
+                        borderRadius: 6,
+                    }}>
+                        <span style={{ fontSize: "0.65rem" }}>⚡</span>
+                        <span style={{
+                            fontFamily: "var(--font-mono)", fontSize: "0.62rem",
+                            color: colors.accent,
+                        }}>
+                            Context loaded from current scan
+                        </span>
+                    </div>
+                )}
+
+                <div style={{
+                    display: "flex", gap: 8, alignItems: "flex-end",
+                }}>
                     <textarea
                         ref={inputRef}
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={e => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Ask anything about cybersecurity..."
+                        placeholder="Ask about threats, scams, security..."
                         rows={1}
-                        disabled={loading}
-                        className="flex-1 resize-none text-xs font-mono focus:outline-none bg-transparent leading-relaxed"
                         style={{
-                            color: text,
-                            caretColor: accent,
-                            maxHeight: 80,
+                            flex: 1,
+                            background: colors.bgSurface,
+                            border: `1px solid ${input ? colors.purple + "50" : colors.border}`,
+                            borderRadius: 12,
+                            padding: "10px 14px",
+                            fontFamily: "var(--font-body)",
+                            fontSize: "0.84rem",
+                            color: colors.text,
+                            resize: "none",
+                            outline: "none",
+                            lineHeight: 1.5,
+                            maxHeight: 100,
+                            overflowY: "auto",
+                            scrollbarWidth: "none",
+                            transition: "border-color 0.2s ease",
+                        }}
+                        onInput={e => {
+                            e.target.style.height = "auto";
+                            e.target.style.height = Math.min(e.target.scrollHeight, 100) + "px";
                         }}
                     />
+
                     <motion.button
-                        onClick={() => sendMessage(input)}
+                        onClick={() => sendMessage()}
                         disabled={!input.trim() || loading}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        transition={springs.snappy}
-                        className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+                        whileHover={input.trim() && !loading ? { scale: 1.08 } : {}}
+                        whileTap={input.trim() && !loading ? { scale: 0.92 } : {}}
                         style={{
+                            width: 40, height: 40, borderRadius: 12, border: "none",
                             background: input.trim() && !loading
-                                ? `linear-gradient(135deg, ${purple}, ${accent})`
-                                : "rgba(255,255,255,0.05)",
-                            opacity: !input.trim() || loading ? 0.5 : 1,
+                                ? `linear-gradient(135deg, #7c3aed, #4f46e5)`
+                                : colors.bgSurface,
+                            cursor: input.trim() && !loading ? "pointer" : "not-allowed",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: "1rem", flexShrink: 0,
+                            boxShadow: input.trim() && !loading ? `0 4px 16px ${colors.purple}50` : "none",
+                            transition: "all 0.2s ease",
                         }}
                     >
-                        {loading
-                            ? <Loader size={12} color="white" className="animate-spin" />
-                            : <Send size={12} color="white" />
-                        }
+                        {loading ? (
+                            <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 0.8, ease: "linear", repeat: Infinity }}
+                                style={{
+                                    width: 16, height: 16, borderRadius: "50%",
+                                    border: `2px solid ${colors.purple}40`,
+                                    borderTopColor: colors.purple,
+                                }}
+                            />
+                        ) : "↑"}
                     </motion.button>
                 </div>
-                <div
-                    className="text-[9px] font-mono mt-1 text-center"
-                    style={{ color: textMuted }}
-                >
+
+                <div style={{
+                    marginTop: 6, textAlign: "center",
+                    fontFamily: "var(--font-mono)", fontSize: "0.58rem",
+                    color: colors.textDim,
+                }}>
                     Enter to send · Shift+Enter for new line
                 </div>
             </div>

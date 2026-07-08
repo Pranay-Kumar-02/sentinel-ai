@@ -21,8 +21,17 @@ export default function AICopilot({ scanResult, emailResult, forensicsResult }) 
 
     return (
         <div
-            className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3"
-            style={{ pointerEvents: "none" }}
+            style={{
+                position: "fixed",
+                bottom: 24,
+                right: 24,
+                zIndex: 5000,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: 12,
+                pointerEvents: "none",
+            }}
         >
             {/* Panel */}
             <div style={{ pointerEvents: "auto" }}>

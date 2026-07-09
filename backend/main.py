@@ -14,7 +14,8 @@ app = FastAPI(
     description="Enterprise Cyber Threat Intelligence Platform",
     version="3.0.0"
 )
-
+from routers.breach import router as breach_router
+app.include_router(breach_router)
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,

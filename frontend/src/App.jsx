@@ -46,7 +46,7 @@ import TopBar from "./components/TopBar/TopBar";
 import LoadingSequence from "./components/LoadingSequence/LoadingSequence";
 import CommandPalette from "./components/CommandPalette/CommandPalette";
 import Workspace from "./pages/Workspace";
-
+import BreachMonitor from "./pages/Workspace/BreachMonitor";
 // ── Pages — lazy (code-splitting) ─────────────────────────────────────────────
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 const ThreatScanner = lazy(() => import("./pages/ThreatScanner"));
@@ -79,6 +79,7 @@ const ROUTES = {
   "/settings": Settings,
   "/about": About,
   "/workspace": Workspace,
+  "/breach": BreachMonitor,
 };
 
 const PAGE_TITLES = {
@@ -93,6 +94,7 @@ const PAGE_TITLES = {
   "/settings": "Settings — Sentinel AI",
   "/about": "About — Sentinel AI",
   "/workspace": "Workspace — Sentinel AI",
+  "/breach": "Breach Monitor — Sentinel AI",
 };
 
 // ── Page loader fallback ───────────────────────────────────────────────────────

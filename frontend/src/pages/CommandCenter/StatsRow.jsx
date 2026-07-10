@@ -1,23 +1,76 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — StatsRow
-// "Mission Overview" section. System status, organization health,
-// live platform metrics — feels like a command center status board.
+// SENTINEL AI — StatsRow (v3 — INSTRUMENT STRIP + GSAP SCROLL SCRUB)
+// Structural change: four separate floating cards become ONE continuous
+// horizontal instrument strip, segmented by thin dividers — reads as a
+// single hardware panel, not a grid of dashboard widgets.
+//
+// Also introduces GSAP's ScrollTrigger with `scrub` — the power-line accent
+// along the top of the strip now fills in precisely tied to scroll position
+// as you pass through this section, not just a fixed-duration animation on
+// viewport-enter. This is real, verifiable DOM/CSS animation (width/scaleX),
+// same safe category as everything else already working — GSAP is just the
+// more precise tool for scroll-linked timelines specifically.
+//
+// Requires: npm install gsap
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useTheme } from "../../hooks/useTheme";
 import Counter from "../../components/Common/Counter";
 import { SectionHead } from "../../components/Common/Tooltip";
+import api from "../../utils/api";
 
-const STATUS_ITEMS = [
-    { label: "LLM Engine", status: "online", detail: "OpenRouter · GPT-4o" },
-    { label: "OSINT Engine", status: "online", detail: "20+ sources active" },
-    { label: "Threat Feed", status: "online", detail: "Streaming live" },
-    { label: "Forensics Lab", status: "online", detail: "OCR · QR · PDF ready" },
+gsap.registerPlugin(ScrollTrigger);
+
+const ENGINES = [
+    { label: "LLM Engine", detail: "OpenRouter · GPT-4o" },
+    { label: "OSINT Engine", detail: "20+ sources active" },
+    { label: "Threat Feed", detail: "URLhaus · live" },
+    { label: "Forensics Lab", detail: "OCR · QR · PDF ready" },
 ];
 
 export default function StatsRow() {
     const { colors } = useTheme();
+    const [backendOnline, setBackendOnline] = useState(null);
+    const stripRef = useRef(null);
+    const powerLineRef = useRef(null);
+
+    useEffect(() => {
+        let mounted = true;
+        api.health()
+            .then(() => { if (mounted) setBackendOnline(true); })
+            .catch(() => { if (mounted) setBackendOnline(false); });
+        return () => { mounted = false; };
+    }, []);
+
+    useEffect(() => {
+        if (!stripRef.current || !powerLineRef.current) return;
+
+        const ctx = gsap.context(() => {
+            gsap.fromTo(
+                powerLineRef.current,
+                { scaleX: 0 },
+                {
+                    scaleX: 1,
+                    ease: "none",
+                    scrollTrigger: {
+                        trigger: stripRef.current,
+                        start: "top 85%",
+                        end: "bottom 60%",
+                        scrub: 0.6,
+                    },
+                }
+            );
+        }, stripRef);
+
+        return () => ctx.revert();
+    }, []);
+
+    const statusColor = backendOnline === null ? colors.amber : backendOnline ? colors.green : colors.red;
+    const statusLabel = backendOnline === null ? "Checking" : backendOnline ? "Online" : "Offline";
 
     return (
         <section style={{ padding: "60px 48px", position: "relative" }}>
@@ -25,83 +78,75 @@ export default function StatsRow() {
                 <SectionHead
                     label="System Status"
                     title="Mission Overview"
-                    sub="Real-time platform health and intelligence engine status, updated continuously."
+                    sub="Real-time platform health, verified against the live backend — not a static claim."
                 />
 
-                <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                    gap: 16,
-                    marginTop: 36,
-                }}>
-                    {STATUS_ITEMS.map((item, i) => (
-                        <motion.div
-                            key={item.label}
-                            initial={{ opacity: 0, y: 20 }}
-                            whileInView={{ opacity: 1, y: 0 }}
-                            viewport={{ once: true, amount: 0.3 }}
-                            transition={{ delay: i * 0.08, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                            style={{
-                                background: colors.bgCard,
-                                border: `1px solid ${colors.border}`,
-                                borderRadius: 14,
-                                padding: "18px 20px",
-                                position: "relative",
-                                overflow: "hidden",
-                            }}
-                        >
-                            <div style={{
-                                position: "absolute",
-                                top: 0, left: 0, right: 0,
-                                height: 2,
-                                background: `linear-gradient(90deg, transparent, ${colors.green}, transparent)`,
-                                opacity: 0.5,
-                            }} />
+                {/* Instrument strip — one continuous panel, not separate cards */}
+                <div
+                    ref={stripRef}
+                    style={{
+                        position: "relative",
+                        marginTop: 36,
+                        background: colors.bgCard,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 16,
+                        overflow: "hidden",
+                    }}
+                    className="instrument-strip"
+                >
+                    <div
+                        ref={powerLineRef}
+                        style={{
+                            position: "absolute", top: 0, left: 0, right: 0, height: 2,
+                            background: `linear-gradient(90deg, transparent, ${statusColor}, transparent)`,
+                            transformOrigin: "left", opacity: 0.7,
+                        }}
+                    />
 
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                                <div style={{ position: "relative" }}>
-                                    <div style={{
-                                        width: 7, height: 7, borderRadius: "50%",
-                                        background: colors.green,
-                                    }} />
-                                    <motion.div
-                                        animate={{ scale: [1, 2.5], opacity: [0.5, 0] }}
-                                        transition={{ duration: 1.5, repeat: Infinity }}
-                                        style={{
-                                            position: "absolute", inset: 0,
-                                            borderRadius: "50%", background: colors.green,
-                                        }}
-                                    />
+                    <div style={{ display: "flex", flexWrap: "wrap" }}>
+                        {ENGINES.map((item, i) => (
+                            <div
+                                key={item.label}
+                                style={{
+                                    flex: "1 1 220px",
+                                    padding: "18px 20px",
+                                    borderRight: i < ENGINES.length - 1 ? `1px solid ${colors.border}` : "none",
+                                    position: "relative",
+                                }}
+                            >
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                    <div style={{ position: "relative" }}>
+                                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: statusColor }} />
+                                        {backendOnline && (
+                                            <motion.div
+                                                animate={{ scale: [1, 2.5], opacity: [0.5, 0] }}
+                                                transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.15 }}
+                                                style={{ position: "absolute", inset: 0, borderRadius: "50%", background: statusColor }}
+                                            />
+                                        )}
+                                    </div>
+                                    <span style={{ fontFamily: "var(--font-body)", fontSize: "0.82rem", fontWeight: 600, color: colors.text }}>
+                                        {item.label}
+                                    </span>
                                 </div>
-                                <span style={{
-                                    fontFamily: "var(--font-body)",
-                                    fontSize: "0.85rem",
-                                    fontWeight: 600,
-                                    color: colors.text,
+                                <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: colors.textMuted, marginBottom: 4 }}>
+                                    {item.detail}
+                                </div>
+                                <div style={{
+                                    fontFamily: "var(--font-mono)", fontSize: "0.6rem", fontWeight: 700,
+                                    color: statusColor, letterSpacing: "0.05em",
                                 }}>
-                                    {item.label}
-                                </span>
+                                    {statusLabel.toUpperCase()}
+                                </div>
                             </div>
-
-                            <div style={{
-                                fontFamily: "var(--font-mono)",
-                                fontSize: "0.72rem",
-                                color: colors.textMuted,
-                            }}>
-                                {item.detail}
-                            </div>
-                        </motion.div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
 
                 {/* Big metrics */}
                 <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                    gap: 24,
-                    marginTop: 40,
-                    paddingTop: 40,
-                    borderTop: `1px solid ${colors.border}`,
+                    display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 24, marginTop: 40, paddingTop: 40, borderTop: `1px solid ${colors.border}`,
                 }}>
                     {[
                         { value: 8, suffix: "", label: "Themes Available", color: colors.purple },
@@ -117,20 +162,10 @@ export default function StatsRow() {
                             transition={{ delay: i * 0.1, type: "spring", stiffness: 280, damping: 22 }}
                             style={{ textAlign: "center" }}
                         >
-                            <Counter
-                                value={stat.value}
-                                suffix={stat.suffix}
-                                fontSize="2.2rem"
-                                color={stat.color}
-                                duration={1.8}
-                            />
+                            <Counter value={stat.value} suffix={stat.suffix} fontSize="2.2rem" color={stat.color} duration={1.8} />
                             <div style={{
-                                fontFamily: "var(--font-mono)",
-                                fontSize: "0.7rem",
-                                color: colors.textMuted,
-                                marginTop: 6,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.06em",
+                                fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: colors.textMuted,
+                                marginTop: 6, textTransform: "uppercase", letterSpacing: "0.06em",
                             }}>
                                 {stat.label}
                             </div>
@@ -138,6 +173,13 @@ export default function StatsRow() {
                     ))}
                 </div>
             </div>
+
+            <style>{`
+                @media (max-width: 640px) {
+                    .instrument-strip > div { flex-direction: column; }
+                    .instrument-strip > div > div { border-right: none !important; border-bottom: 1px solid ${colors.border}; }
+                }
+            `}</style>
         </section>
     );
 }

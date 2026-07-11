@@ -47,6 +47,7 @@ import LoadingSequence from "./components/LoadingSequence/LoadingSequence";
 import CommandPalette from "./components/CommandPalette/CommandPalette";
 import Workspace from "./pages/Workspace";
 import BreachMonitor from "./pages/Workspace/BreachMonitor";
+import TyposquatWatchdog from "./pages/Workspace/TyposquatWatchdog";
 // ── Pages — lazy (code-splitting) ─────────────────────────────────────────────
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 const ThreatScanner = lazy(() => import("./pages/ThreatScanner"));
@@ -80,6 +81,7 @@ const ROUTES = {
   "/about": About,
   "/workspace": Workspace,
   "/breach": BreachMonitor,
+  "/typosquat": TyposquatWatchdog,
 };
 
 const PAGE_TITLES = {
@@ -95,6 +97,7 @@ const PAGE_TITLES = {
   "/about": "About — Sentinel AI",
   "/workspace": "Workspace — Sentinel AI",
   "/breach": "Breach Monitor — Sentinel AI",
+  "/typosquat": "Typosquat Watchdog — Sentinel AI",
 };
 
 // ── Page loader fallback ───────────────────────────────────────────────────────

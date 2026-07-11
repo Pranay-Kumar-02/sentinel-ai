@@ -16,6 +16,8 @@ app = FastAPI(
 )
 from routers.breach import router as breach_router
 app.include_router(breach_router)
+from routers.typosquat import router as typosquat_router
+app.include_router(typosquat_router)
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,

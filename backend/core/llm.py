@@ -1,5 +1,6 @@
 import httpx
 import os
+import re
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -75,12 +76,55 @@ async def analyze_with_llm(user_input: str) -> dict:
         
         data = response.json()
         raw_response = data["choices"][0]["message"]["content"]
-        
-        return parse_llm_response(raw_response)
+
+        # openrouter/auto routes each request to a different underlying model
+        # (Claude, GPT-5, Gemini, etc. — OpenRouter's own docs note "Auto"
+        # behavior can be unpredictable for production). Capturing which
+        # model actually answered makes inconsistent-looking results
+        # explainable/debuggable instead of mysterious.
+        model_used = data.get("model", MODEL)
+
+        result = parse_llm_response(raw_response)
+        result["model_used"] = model_used
+        return result
+
+
+def _normalize_for_matching(line: str) -> str:
+    """
+    Strip common formatting variations the LLM might add around section
+    headers — markdown bold, leading bullets/dashes, extra whitespace — so
+    parsing isn't fragile to minor formatting deviations between models.
+    """
+    stripped = line.strip()
+    stripped = stripped.lstrip("-*•").strip()
+    stripped = stripped.replace("**", "")
+    return stripped
+
+
+# Fallback patterns — used only if the primary structured parse didn't find
+# a real value. Searches the FULL raw response, not just line starts, so a
+# genuine answer isn't thrown away just because the model didn't follow the
+# exact "KEY: value" format on its own line.
+_VERDICT_FALLBACK = re.compile(r'\b(SAFE|SUSPICIOUS|DANGEROUS|CRITICAL)\b', re.IGNORECASE)
+_CONFIDENCE_FALLBACK = re.compile(r'confidence["\s:]*?(\d{1,3})\s*%?', re.IGNORECASE)
+_SEVERITY_FALLBACK = re.compile(r'\b(LOW|MEDIUM|HIGH|CRITICAL)\b', re.IGNORECASE)
 
 
 def parse_llm_response(raw: str) -> dict:
-    """Parse the structured LLM response into a clean dictionary."""
+    """
+    Parse the structured LLM response into a clean dictionary.
+
+    FIX: the original parser required an EXACT prefix match on each line
+    (e.g. line.startswith("VERDICT:")). Since openrouter/auto routes every
+    request to a potentially different model, and different models have
+    different formatting habits (markdown bolding section headers,
+    different casing, leading bullets), a real answer could fail to parse
+    and silently default to "UNKNOWN"/0 — even though the model gave a
+    perfectly good answer, just not in the exact expected shape. Now:
+    normalized, case-insensitive line matching, plus a regex-based fallback
+    that searches the full raw text if the structured parse still comes up
+    empty on a critical field.
+    """
     
     result = {
         "verdict": "UNKNOWN",
@@ -93,7 +137,8 @@ def parse_llm_response(raw: str) -> dict:
         "indicators_of_compromise": "",
         "recommended_actions": "",
         "educational_note": "",
-        "raw_response": raw
+        "raw_response": raw,
+        "parsing_note": None,  # set if we had to fall back to pattern-matching
     }
     
     sections = {
@@ -114,15 +159,18 @@ def parse_llm_response(raw: str) -> dict:
     current_content = []
     
     for line in lines:
+        normalized = _normalize_for_matching(line)
+        normalized_upper = normalized.upper()
         matched = False
         for key, field in sections.items():
-            if line.startswith(f"{key}:"):
+            if normalized_upper.startswith(f"{key}:"):
                 # Save previous section
                 if current_section:
                     result[current_section] = "\n".join(current_content).strip()
                 current_section = field
-                # Get inline content if any
-                inline = line[len(key)+1:].strip()
+                # Get inline content if any — pulled from the normalized
+                # line (markdown/bullets stripped) so stored values are clean
+                inline = normalized[len(key) + 1:].strip()
                 current_content = [inline] if inline else []
                 matched = True
                 break
@@ -142,5 +190,38 @@ def parse_llm_response(raw: str) -> dict:
             result["confidence"] = int(conf_clean)
         except:
             result["confidence"] = 0
-    
+
+    # ── Fallback safety net ──────────────────────────────────────────────
+    # Only kicks in if the structured parse genuinely came up empty on a
+    # critical field — never overrides a value that was actually parsed.
+    fallback_used = []
+
+    if result["verdict"] == "UNKNOWN":
+        match = _VERDICT_FALLBACK.search(raw)
+        if match:
+            result["verdict"] = match.group(1).upper()
+            fallback_used.append("verdict")
+
+    if result["confidence"] == 0:
+        match = _CONFIDENCE_FALLBACK.search(raw)
+        if match:
+            try:
+                result["confidence"] = int(match.group(1))
+                fallback_used.append("confidence")
+            except ValueError:
+                pass
+
+    if result["severity"] == "UNKNOWN":
+        match = _SEVERITY_FALLBACK.search(raw)
+        if match:
+            result["severity"] = match.group(1).upper()
+            fallback_used.append("severity")
+
+    if fallback_used:
+        result["parsing_note"] = (
+            f"Model did not follow the exact structured format for: "
+            f"{', '.join(fallback_used)}. Recovered via fallback pattern "
+            f"match instead of losing the answer entirely."
+        )
+
     return result

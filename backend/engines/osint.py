@@ -253,10 +253,26 @@ def check_typosquatting(domain: str) -> dict:
 
 
 # ── MASTER OSINT FUNCTION ──────────────────────────────────────────────────────
+# Total number of independent signal sources this function can draw on. Used
+# to compute `confidence` below — how much of the full picture we actually
+# got, not just what the score happened to add up to.
+TOTAL_POSSIBLE_CHECKS = 5  # VirusTotal, Safe Browsing, typosquatting, domain age, IP geolocation
+
+
 async def run_osint(url: str) -> dict:
     """
     Run complete OSINT investigation on a URL/domain.
     This is the main function called by the API.
+
+    FIX: previously, if VIRUSTOTAL_API_KEY or GOOGLE_SAFE_BROWSING_KEY weren't
+    configured (or a check errored for any reason), that check silently
+    contributed zero risk — identical to "checked and found clean." A
+    genuinely malicious URL could score artificially low with zero
+    indication that a signal source never actually ran. This version tracks
+    which checks succeeded vs. were unavailable, returns a real `confidence`
+    score reflecting how much of the full picture was actually gathered, and
+    lists unavailable checks explicitly in risk_flags so it's never silently
+    mistaken for "verified clean."
     """
     domain = extract_domain(url)
     ip     = extract_ip(domain)
@@ -276,33 +292,71 @@ async def run_osint(url: str) -> dict:
     # Calculate overall OSINT risk score
     risk_score = 0
     risk_flags = []
+    checks_run = 0
+    checks_unavailable = []
 
-    if vt_result.get("malicious", 0) > 0:
-        risk_score += 40
-        risk_flags.append(f"🔴 VirusTotal: {vt_result['malicious']} engines flagged as malicious")
-    if vt_result.get("suspicious", 0) > 2:
-        risk_score += 20
-        risk_flags.append(f"🟠 VirusTotal: {vt_result['suspicious']} engines flagged as suspicious")
-    if sb_result.get("is_dangerous"):
-        risk_score += 40
-        risk_flags.append(f"🔴 Google Safe Browsing: {', '.join(sb_result.get('threats', []))}")
+    # ── VirusTotal ──────────────────────────────────────────────────────
+    if "error" in vt_result:
+        checks_unavailable.append("VirusTotal")
+    else:
+        checks_run += 1
+        if vt_result.get("malicious", 0) > 0:
+            risk_score += 40
+            risk_flags.append(f"🔴 VirusTotal: {vt_result['malicious']} engines flagged as malicious")
+        if vt_result.get("suspicious", 0) > 2:
+            risk_score += 20
+            risk_flags.append(f"🟠 VirusTotal: {vt_result['suspicious']} engines flagged as suspicious")
+
+    # ── Google Safe Browsing ────────────────────────────────────────────
+    if "error" in sb_result:
+        checks_unavailable.append("Google Safe Browsing")
+    else:
+        checks_run += 1
+        if sb_result.get("is_dangerous"):
+            risk_score += 40
+            risk_flags.append(f"🔴 Google Safe Browsing: {', '.join(sb_result.get('threats', []))}")
+
+    # ── Typosquatting — always runs, no API key required ────────────────
+    checks_run += 1
     if typo_result.get("is_typosquatting"):
         risk_score += 30
         risk_flags.append(f"🔴 Typosquatting: Impersonating '{typo_result.get('matched_brand')}'")
-    if age_result.get("is_very_new"):
-        risk_score += 25
-        risk_flags.append(f"🔴 Domain is only {age_result.get('age_days')} days old")
-    elif age_result.get("is_new"):
-        risk_score += 15
-        risk_flags.append(f"🟠 Domain registered recently ({age_result.get('age_text')})")
-    if geo_result.get("is_proxy"):
-        risk_score += 15
-        risk_flags.append("🟠 IP is behind VPN/Proxy")
-    if geo_result.get("is_hosting"):
-        risk_score += 10
-        risk_flags.append("🟡 IP is a hosting/datacenter IP")
+
+    # ── Domain age — depends on WHOIS having returned a real creation date ──
+    if age_result.get("age_days", -1) >= 0:
+        checks_run += 1
+        if age_result.get("is_very_new"):
+            risk_score += 25
+            risk_flags.append(f"🔴 Domain is only {age_result.get('age_days')} days old")
+        elif age_result.get("is_new"):
+            risk_score += 15
+            risk_flags.append(f"🟠 Domain registered recently ({age_result.get('age_text')})")
+    else:
+        checks_unavailable.append("Domain age (WHOIS)")
+
+    # ── IP geolocation ───────────────────────────────────────────────────
+    if "error" in geo_result:
+        checks_unavailable.append("IP geolocation")
+    else:
+        checks_run += 1
+        if geo_result.get("is_proxy"):
+            risk_score += 15
+            risk_flags.append("🟠 IP is behind VPN/Proxy")
+        if geo_result.get("is_hosting"):
+            risk_score += 10
+            risk_flags.append("🟡 IP is a hosting/datacenter IP")
 
     risk_score = min(risk_score, 100)
+
+    # Confidence reflects how many of the possible signal sources actually
+    # ran — NOT how high the risk score is. A SAFE verdict built on 1/5
+    # checks is a very different claim than a SAFE verdict built on 5/5.
+    confidence = round((checks_run / TOTAL_POSSIBLE_CHECKS) * 100)
+
+    if checks_unavailable:
+        risk_flags.append(
+            f"⚪ Unavailable checks (not counted toward score, confidence reduced): {', '.join(checks_unavailable)}"
+        )
 
     overall_verdict = (
         "CRITICAL"   if risk_score >= 70 else
@@ -312,16 +366,19 @@ async def run_osint(url: str) -> dict:
     )
 
     return {
-        "domain":           domain,
-        "ip":               ip,
-        "url_analyzed":     url,
-        "virustotal":       vt_result,
-        "whois":            whois_result,
-        "ip_geolocation":   geo_result,
-        "safe_browsing":    sb_result,
-        "typosquatting":    typo_result,
-        "domain_age":       age_result,
-        "risk_score":       risk_score,
-        "risk_flags":       risk_flags,
-        "overall_verdict":  overall_verdict,
+        "domain":              domain,
+        "ip":                  ip,
+        "url_analyzed":        url,
+        "virustotal":          vt_result,
+        "whois":               whois_result,
+        "ip_geolocation":      geo_result,
+        "safe_browsing":       sb_result,
+        "typosquatting":       typo_result,
+        "domain_age":          age_result,
+        "risk_score":          risk_score,
+        "risk_flags":          risk_flags,
+        "overall_verdict":     overall_verdict,
+        "confidence":          confidence,
+        "checks_run":          checks_run,
+        "checks_unavailable":  checks_unavailable,
     }

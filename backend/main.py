@@ -18,6 +18,8 @@ from routers.breach import router as breach_router
 app.include_router(breach_router)
 from routers.typosquat import router as typosquat_router
 app.include_router(typosquat_router)
+from routers.cve import router as cve_router
+app.include_router(cve_router)
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +28,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Verdict severity ranking ──────────────────────────────────────────────────
+# Single source of truth for verdict escalation. Previously /fullscan and
+# /forensics/upload each had their own hand-rolled if/elif chain that only
+# escalated in narrow cases — e.g. a SUSPICIOUS OSINT result only upgraded
+# the verdict if the LLM verdict was exactly "SAFE", silently doing nothing
+# if the LLM verdict was "UNKNOWN" (a real, common fallback value). /analyze/
+# email already had the correct fix — a proper rank-based comparison — this
+# just makes every endpoint use that same correct logic instead of three
+# different, inconsistent implementations.
+VERDICT_RANK = {"SAFE": 0, "UNKNOWN": 1, "SUSPICIOUS": 2, "DANGEROUS": 3, "CRITICAL": 4}
+
+
+def escalate_verdict(current: str, candidates) -> str:
+    """
+    Returns the most severe verdict among `current` and every verdict in
+    `candidates` (e.g. OSINT results), using a real severity ranking instead
+    of a fragile if/elif chain. Never downgrades, always escalates correctly
+    regardless of what the starting verdict happens to be.
+    """
+    best = current
+    for v in candidates:
+        if VERDICT_RANK.get(v, 0) > VERDICT_RANK.get(best, 0):
+            best = v
+    return best
 
 # ── Request Models ────────────────────────────────────────────────────────────
 
@@ -111,11 +138,10 @@ async def fullscan(request: FullScanRequest):
                 osint_results.append(osint_data)
 
         master_verdict = llm_result.get("summary", {}).get("verdict", "UNKNOWN")
-        for o in osint_results:
-            ov = o.get("overall_verdict", "SAFE")
-            if ov == "CRITICAL": master_verdict = "CRITICAL"
-            elif ov == "DANGEROUS" and master_verdict not in ["CRITICAL"]: master_verdict = "DANGEROUS"
-            elif ov == "SUSPICIOUS" and master_verdict == "SAFE": master_verdict = "SUSPICIOUS"
+        master_verdict = escalate_verdict(
+            master_verdict,
+            [o.get("overall_verdict", "SAFE") for o in osint_results],
+        )
 
         return {
             "master_verdict": master_verdict,
@@ -198,11 +224,10 @@ Extracted Content:
 
         # Step 4 — Master verdict
         master_verdict = llm_result.get("summary", {}).get("verdict", "UNKNOWN")
-        for o in osint_results:
-            ov = o.get("overall_verdict", "SAFE")
-            if ov == "CRITICAL": master_verdict = "CRITICAL"
-            elif ov == "DANGEROUS" and master_verdict != "CRITICAL": master_verdict = "DANGEROUS"
-            elif ov == "SUSPICIOUS" and master_verdict == "SAFE": master_verdict = "SUSPICIOUS"
+        master_verdict = escalate_verdict(
+            master_verdict,
+            [o.get("overall_verdict", "SAFE") for o in osint_results],
+        )
 
         return {
             "forensics":      forensics_result,
@@ -275,14 +300,11 @@ Analyze this email for threats, phishing, BEC, spoofing, or malicious intent.
         email_verdict = email_result.get("overall_verdict", "UNKNOWN")
         llm_verdict   = llm_result.get("summary", {}).get("verdict", "UNKNOWN")
 
-        severity_rank = {"SAFE": 0, "UNKNOWN": 1, "SUSPICIOUS": 2, "DANGEROUS": 3, "CRITICAL": 4}
-        master_verdict = max([email_verdict, llm_verdict], key=lambda v: severity_rank.get(v, 0))
-
-        # Upgrade if OSINT finds threats
-        for o in osint_results:
-            ov = o.get("overall_verdict", "SAFE")
-            if severity_rank.get(ov, 0) > severity_rank.get(master_verdict, 0):
-                master_verdict = ov
+        master_verdict = escalate_verdict(email_verdict, [llm_verdict])
+        master_verdict = escalate_verdict(
+            master_verdict,
+            [o.get("overall_verdict", "SAFE") for o in osint_results],
+        )
 
         return {
             "master_verdict":   master_verdict,

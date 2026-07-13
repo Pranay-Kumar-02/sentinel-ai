@@ -49,6 +49,7 @@ import Workspace from "./pages/Workspace";
 import BreachMonitor from "./pages/Workspace/BreachMonitor";
 import TyposquatWatchdog from "./pages/Workspace/TyposquatWatchdog";
 import CVEPulse from "./pages/Workspace/CVEPulse";
+import QRSafeScanner from "./pages/Workspace/QRSafeScanner";
 // ── Pages — lazy (code-splitting) ─────────────────────────────────────────────
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 const ThreatScanner = lazy(() => import("./pages/ThreatScanner"));
@@ -85,6 +86,7 @@ const ROUTES = {
   "/breach": BreachMonitor,
   "/typosquat": TyposquatWatchdog,
   "/cve": CVEPulse,
+  "/qrscanner": QRSafeScanner,
 };
 
 const PAGE_TITLES = {
@@ -102,6 +104,8 @@ const PAGE_TITLES = {
   "/breach": "Breach Monitor — Sentinel AI",
   "/typosquat": "Typosquat Watchdog — Sentinel AI",
   "/cve": "CVE Pulse — Sentinel AI",
+  "/qrscanner": "QR Safe Scanner — Sentinel AI",
+
 };
 
 // ── Page loader fallback ───────────────────────────────────────────────────────

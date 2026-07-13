@@ -20,6 +20,8 @@ from routers.typosquat import router as typosquat_router
 app.include_router(typosquat_router)
 from routers.cve import router as cve_router
 app.include_router(cve_router)
+from routers.qr import router as qr_router
+app.include_router(qr_router)
 # ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,

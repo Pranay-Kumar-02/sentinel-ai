@@ -110,12 +110,38 @@ function getStateConfig(state, accent, colors) {
 // centering never clips it.
 const ANCHOR_SIZE = 48;
 
+// ── Singleton guard ─────────────────────────────────────────────────────────
+// If <SmartCursor /> ever gets mounted twice (e.g. once in App.jsx and again
+// inside a Layout/DashboardShell), each instance runs its own independent
+// spring off its own mouse listeners. One tracks correctly, the other lags
+// behind or freezes near its mount position — which is exactly the "ring in
+// one place, dot somewhere else" bug in the screenshot. This flag makes any
+// second instance render nothing instead of fighting the first for the
+// pointer.
+let SMART_CURSOR_ACTIVE = false;
+
 export default function SmartCursor() {
     const { accent, colors } = useTheme();
     const { cursorState, cursorLabel } = useCursor();
 
     const [visible, setVisible] = useState(false);
     const [clicked, setClicked] = useState(false);
+    const [isPrimary, setIsPrimary] = useState(false);
+
+    useEffect(() => {
+        if (SMART_CURSOR_ACTIVE) {
+            // eslint-disable-next-line no-console
+            console.warn(
+                "[SmartCursor] Duplicate mount detected — a second <SmartCursor /> " +
+                "is already rendered elsewhere in the tree. Skipping this instance. " +
+                "Find and remove the second <SmartCursor /> usage."
+            );
+            return;
+        }
+        SMART_CURSOR_ACTIVE = true;
+        setIsPrimary(true);
+        return () => { SMART_CURSOR_ACTIVE = false; };
+    }, []);
 
     const rawX = useMotionValue(-999);
     const rawY = useMotionValue(-999);
@@ -209,6 +235,9 @@ export default function SmartCursor() {
     if (typeof window !== "undefined" && window.matchMedia("(hover: none)").matches) {
         return null;
     }
+
+    // Duplicate mount — another SmartCursor is already active. Render nothing.
+    if (!isPrimary) return null;
 
     const cfg = getStateConfig(cursorState, accent, colors);
 

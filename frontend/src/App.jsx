@@ -50,6 +50,7 @@ import BreachMonitor from "./pages/Workspace/BreachMonitor";
 import TyposquatWatchdog from "./pages/Workspace/TyposquatWatchdog";
 import CVEPulse from "./pages/Workspace/CVEPulse";
 import QRSafeScanner from "./pages/Workspace/QRSafeScanner";
+import SentinelScore from "./pages/Workspace/SentinelScore";
 // ── Pages — lazy (code-splitting) ─────────────────────────────────────────────
 const CommandCenter = lazy(() => import("./pages/CommandCenter"));
 const ThreatScanner = lazy(() => import("./pages/ThreatScanner"));
@@ -87,6 +88,7 @@ const ROUTES = {
   "/typosquat": TyposquatWatchdog,
   "/cve": CVEPulse,
   "/qrscanner": QRSafeScanner,
+  "/score": SentinelScore,
 };
 
 const PAGE_TITLES = {

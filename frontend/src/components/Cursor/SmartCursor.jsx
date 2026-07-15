@@ -1,219 +1,83 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — SmartCursor
-// FIX APPLIED: outer ring / inner dot no longer use `translateX: "-50%"` on the
-// same element whose width/height are animating. That caused the "-50%" offset
-// to recalculate every frame against the live (spring-animating) size, which is
-// what caused the jump/lag/drift you saw. Now each cursor piece is a fixed-size
-// zero-footprint ANCHOR (only ever moved by x/y spring), with the visual box
-// centered inside it via flexbox — so resizing never moves the anchor point.
+// SENTINEL AI — SmartCursor (v3 — clean rewrite)
+//
+// Why the rewrite: the previous version used two Framer Motion springs
+// sharing one raw motion value, wrapped in nested anchor/flex divs, with
+// `animate={{}}` objects rebuilt every render. That's a lot of moving parts,
+// and something in that chain was occasionally desyncing (random position
+// jumps not reproducible on demand).
+//
+// This version removes Framer Motion from the position pipeline entirely:
+//   - ONE rAF loop owns position. It lerps toward the real mouse coordinate
+//     and writes `transform` directly to two DOM refs. No React re-render
+//     is involved in moving the cursor — so React scheduling, Framer's
+//     internal spring state, and animate-prop diffing can't be the cause
+//     of a position glitch anymore, because none of them touch position.
+//   - Ring rotation + threat pulse are CSS @keyframes on a CHILD element
+//     that has no position responsibility at all — so a rotating transform
+//     can never conflict with a position transform on the same node.
+//   - Colors/border/size are plain CSS transitions driven by React state,
+//     which only re-renders when cursorState actually changes (rare) —
+//     not on every mouse move.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useRef, useState } from "react";
-import { motion, useMotionValue, useSpring, AnimatePresence } from "framer-motion";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 import { useTheme } from "../../hooks/useTheme";
 
-// ── State visual configs ──────────────────────────────────────────────────────
+// Fixed layout size for the visual ring/dot — NEVER changes via JS. Size
+// differences between states are done with CSS `scale`, which doesn't
+// affect layout/box size, so there's nothing for a percentage-based
+// transform to recompute against. This is what makes position math stable
+// regardless of what state the cursor is in.
+const RING_BASE = 40;
+const DOT_BASE = 8;
+
+// Response speed — higher = tighter/faster tracking. These are now used as
+// exponential-decay rates (per second), not fixed per-frame fractions, so
+// the cursor tracks identically on a 60Hz and a 144Hz display instead of
+// feeling laggier on lower refresh rates.
+const SPEED_OUTER = 22; // ring: quick with a touch of smoothing
+const SPEED_INNER = 40; // dot: essentially glued to the real pointer
+
 function getStateConfig(state, accent, colors) {
     switch (state) {
         case CURSOR_STATES.INTERACTIVE:
-            return {
-                outerSize: 40,
-                outerBorder: `1.5px dashed ${accent}`,
-                outerRadius: "50%",
-                outerRotate: true,
-                outerOpacity: 1,
-                innerSize: 3,
-                innerBg: accent,
-                innerShadow: `0 0 10px ${accent}`,
-                color: accent,
-            };
+            return { scale: 1, border: `1.5px dashed ${accent}`, radius: "50%", rotate: true, opacity: 1, dotScale: 0.4, dotBg: accent, dotShadow: `0 0 10px ${accent}`, color: accent };
         case CURSOR_STATES.THREAT:
         case CURSOR_STATES.DANGER:
-            return {
-                outerSize: 38,
-                outerBorder: `1.5px solid ${colors.red}`,
-                outerRadius: "4px",
-                outerRotate: false,
-                outerOpacity: 1,
-                innerSize: 7,
-                innerBg: colors.red,
-                innerShadow: `0 0 14px ${colors.redGlow}`,
-                color: colors.red,
-                pulse: true,
-            };
+            return { scale: 0.95, border: `1.5px solid ${colors.red}`, radius: "4px", rotate: false, opacity: 1, dotScale: 0.9, dotBg: colors.red, dotShadow: `0 0 14px ${colors.redGlow}`, color: colors.red, pulse: true };
         case CURSOR_STATES.AI:
-            return {
-                outerSize: 40,
-                outerBorder: `1.5px solid ${colors.purple}`,
-                outerRadius: "50%",
-                outerRotate: true,
-                outerOpacity: 1,
-                innerSize: 6,
-                innerBg: colors.purple,
-                innerShadow: `0 0 12px ${colors.purpleGlow}`,
-                color: colors.purple,
-            };
+            return { scale: 1, border: `1.5px solid ${colors.purple}`, radius: "50%", rotate: true, opacity: 1, dotScale: 0.75, dotBg: colors.purple, dotShadow: `0 0 12px ${colors.purpleGlow}`, color: colors.purple };
         case CURSOR_STATES.SAFE:
-            return {
-                outerSize: 36,
-                outerBorder: `1.5px solid ${colors.green}`,
-                outerRadius: "50%",
-                outerRotate: false,
-                outerOpacity: 1,
-                innerSize: 5,
-                innerBg: colors.green,
-                innerShadow: `0 0 12px ${colors.greenGlow}`,
-                color: colors.green,
-            };
+            return { scale: 0.9, border: `1.5px solid ${colors.green}`, radius: "50%", rotate: false, opacity: 1, dotScale: 0.6, dotBg: colors.green, dotShadow: `0 0 12px ${colors.greenGlow}`, color: colors.green };
         case CURSOR_STATES.LOADING:
-            return {
-                outerSize: 36,
-                outerBorder: `1.5px dashed ${colors.amber}`,
-                outerRadius: "50%",
-                outerRotate: true,
-                outerOpacity: 0.9,
-                innerSize: 4,
-                innerBg: colors.amber,
-                innerShadow: `0 0 8px ${colors.amberGlow}`,
-                color: colors.amber,
-            };
+            return { scale: 0.9, border: `1.5px dashed ${colors.amber}`, radius: "50%", rotate: true, opacity: 0.9, dotScale: 0.5, dotBg: colors.amber, dotShadow: `0 0 8px ${colors.amberGlow}`, color: colors.amber };
         case CURSOR_STATES.TEXT:
-            return {
-                outerSize: 2,
-                outerBorder: "none",
-                outerRadius: "50%",
-                outerRotate: false,
-                outerOpacity: 0,
-                innerSize: 22,
-                innerBg: "transparent",
-                innerShadow: "none",
-                color: accent,
-                textCursor: true,
-            };
+            return { scale: 0.05, border: "none", radius: "50%", rotate: false, opacity: 0, dotScale: 2.75, dotBg: "transparent", dotShadow: "none", color: accent, textCursor: true };
         default:
-            return {
-                outerSize: 26,
-                outerBorder: `1px solid ${accent}`,
-                outerRadius: "50%",
-                outerRotate: false,
-                outerOpacity: 0.65,
-                innerSize: 5,
-                innerBg: accent,
-                innerShadow: `0 0 8px ${accent}`,
-                color: accent,
-            };
+            return { scale: 0.65, border: `1px solid ${accent}`, radius: "50%", rotate: false, opacity: 0.65, dotScale: 0.6, dotBg: accent, dotShadow: `0 0 8px ${accent}`, color: accent };
     }
 }
 
-// Anchor slot is sized to fit the largest possible ring (40px) so the flex
-// centering never clips it.
-const ANCHOR_SIZE = 48;
-
-// ── Singleton guard ─────────────────────────────────────────────────────────
-// If <SmartCursor /> ever gets mounted twice (e.g. once in App.jsx and again
-// inside a Layout/DashboardShell), each instance runs its own independent
-// spring off its own mouse listeners. One tracks correctly, the other lags
-// behind or freezes near its mount position — which is exactly the "ring in
-// one place, dot somewhere else" bug in the screenshot. This flag makes any
-// second instance render nothing instead of fighting the first for the
-// pointer.
-let SMART_CURSOR_ACTIVE = false;
-
 export default function SmartCursor() {
     const { accent, colors } = useTheme();
-    const { cursorState, cursorLabel } = useCursor();
+    const { cursorState, cursorLabel, setCursor, resetCursor } = useCursor();
 
     const [visible, setVisible] = useState(false);
-    const [clicked, setClicked] = useState(false);
-    const [isPrimary, setIsPrimary] = useState(false);
 
-    useEffect(() => {
-        if (SMART_CURSOR_ACTIVE) {
-            // eslint-disable-next-line no-console
-            console.warn(
-                "[SmartCursor] Duplicate mount detected — a second <SmartCursor /> " +
-                "is already rendered elsewhere in the tree. Skipping this instance. " +
-                "Find and remove the second <SmartCursor /> usage."
-            );
-            return;
-        }
-        SMART_CURSOR_ACTIVE = true;
-        setIsPrimary(true);
-        return () => { SMART_CURSOR_ACTIVE = false; };
-    }, []);
+    const ringRef = useRef(null);
+    const dotRef = useRef(null);
+    const labelRef = useRef(null);
 
-    const rawX = useMotionValue(-999);
-    const rawY = useMotionValue(-999);
+    // Raw target — updated directly by the mousemove handler, no React
+    // state involved, so a mouse move never triggers a re-render.
+    const target = useRef({ x: -999, y: -999 });
+    // Current lerped positions, owned entirely by the rAF loop.
+    const ringPos = useRef({ x: -999, y: -999 });
+    const dotPos = useRef({ x: -999, y: -999 });
 
-    // Outer ring anchor — spring lag for smoothness
-    const outerX = useSpring(rawX, { stiffness: 200, damping: 22, mass: 0.4 });
-    const outerY = useSpring(rawY, { stiffness: 200, damping: 22, mass: 0.4 });
-
-    // Inner dot anchor — near instant
-    const innerX = useSpring(rawX, { stiffness: 1000, damping: 50, mass: 0.1 });
-    const innerY = useSpring(rawY, { stiffness: 1000, damping: 50, mass: 0.1 });
-
-    useEffect(() => {
-        if (window.matchMedia("(hover: none)").matches) return;
-
-        let lastMove = { x: -999, y: -999, t: 0 };
-
-        function onMove(e) {
-            const now = performance.now();
-            const dx = Math.abs(e.clientX - lastMove.x);
-            const dy = Math.abs(e.clientY - lastMove.y);
-            const dt = now - lastMove.t;
-
-            // DEBUG INSTRUMENTATION — catches the random-jump bug in the act.
-            // A real mouse can't move >150px in <50ms at normal DPI/polling
-            // rates. If this fires, something OTHER than natural mouse motion
-            // is feeding a bad coordinate into this handler (e.g. an iframe,
-            // a modal with its own coordinate space, or a stray event from a
-            // different element). Remove this block once the cause is found.
-            if (dt > 0 && dt < 50 && (dx > 150 || dy > 150) && lastMove.t !== 0) {
-                // eslint-disable-next-line no-console
-                console.warn(
-                    "[SmartCursor] JUMP DETECTED:",
-                    `from (${lastMove.x}, ${lastMove.y}) to (${e.clientX}, ${e.clientY})`,
-                    `in ${dt.toFixed(1)}ms`,
-                    "\ntarget element:", e.target,
-                    "\nisTrusted:", e.isTrusted,
-                );
-                console.trace("[SmartCursor] jump stack trace");
-            }
-
-            lastMove = { x: e.clientX, y: e.clientY, t: now };
-            rawX.set(e.clientX);
-            rawY.set(e.clientY);
-            if (!visible) setVisible(true);
-        }
-        function onLeave() { setVisible(false); }
-        function onEnter() { setVisible(true); }
-        function onDown() {
-            setClicked(true);
-            setTimeout(() => setClicked(false), 150);
-        }
-
-        // document — not window — so it keeps tracking inside portals/overlays
-        document.addEventListener("mousemove", onMove, { passive: true });
-        document.addEventListener("mouseleave", onLeave, { passive: true });
-        document.addEventListener("mouseenter", onEnter, { passive: true });
-        document.addEventListener("mousedown", onDown, { passive: true });
-
-        return () => {
-            document.removeEventListener("mousemove", onMove);
-            document.removeEventListener("mouseleave", onLeave);
-            document.removeEventListener("mouseenter", onEnter);
-            document.removeEventListener("mousedown", onDown);
-        };
-    }, [rawX, rawY, visible]);
-
-    const { setCursor, resetCursor } = useCursor();
-
-    // Inject cursor:none once, globally — fully suppresses the native OS
-    // cursor everywhere (including overlays/portals) instead of relying on
-    // per-element CSS that can get missed and cause a "double cursor" feel.
+    // ── Inject cursor:none once, globally ───────────────────────────────────
     useEffect(() => {
         if (document.getElementById("sentinel-cursor-hide")) return;
         const style = document.createElement("style");
@@ -223,15 +87,81 @@ export default function SmartCursor() {
         return () => style.remove();
     }, []);
 
+    // ── Mouse tracking — writes to a ref only, never React state ───────────
+    useEffect(() => {
+        if (window.matchMedia("(hover: none)").matches) return;
+
+        function onMove(e) {
+            target.current.x = e.clientX;
+            target.current.y = e.clientY;
+            if (!visible) setVisible(true);
+        }
+        function onLeave() { setVisible(false); }
+        function onEnter() { setVisible(true); }
+
+        document.addEventListener("mousemove", onMove, { passive: true });
+        document.addEventListener("mouseleave", onLeave, { passive: true });
+        document.addEventListener("mouseenter", onEnter, { passive: true });
+
+        return () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseleave", onLeave);
+            document.removeEventListener("mouseenter", onEnter);
+        };
+    }, [visible]);
+
+    // ── The single owner of position: one rAF loop, writes transform
+    //    directly to the DOM refs. This never goes through React. ─────────
+    useEffect(() => {
+        if (window.matchMedia("(hover: none)").matches) return;
+        let raf;
+        let lastTime = performance.now();
+
+        function tick(now) {
+            const dt = Math.min((now - lastTime) / 1000, 0.05); // cap to avoid huge jumps on tab-switch
+            lastTime = now;
+
+            const t = target.current;
+
+            // Exponential smoothing (frame-rate independent): the fraction
+            // covered this frame depends on actual elapsed time, not on
+            // frame count. This is what "smooth AND precise" needs — a
+            // fixed per-frame multiplier feels laggy on high refresh-rate
+            // displays and jumpy on low ones; this feels the same on both.
+            const outerT = 1 - Math.exp(-SPEED_OUTER * dt);
+            const innerT = 1 - Math.exp(-SPEED_INNER * dt);
+
+            ringPos.current.x += (t.x - ringPos.current.x) * outerT;
+            ringPos.current.y += (t.y - ringPos.current.y) * outerT;
+            dotPos.current.x += (t.x - dotPos.current.x) * innerT;
+            dotPos.current.y += (t.y - dotPos.current.y) * innerT;
+
+            if (ringRef.current) {
+                ringRef.current.style.transform =
+                    `translate3d(${ringPos.current.x}px, ${ringPos.current.y}px, 0) translate(-50%, -50%)`;
+            }
+            if (dotRef.current) {
+                dotRef.current.style.transform =
+                    `translate3d(${dotPos.current.x}px, ${dotPos.current.y}px, 0) translate(-50%, -50%)`;
+            }
+            if (labelRef.current) {
+                labelRef.current.style.transform =
+                    `translate3d(${ringPos.current.x + 10}px, ${ringPos.current.y + 14}px, 0)`;
+            }
+
+            raf = requestAnimationFrame(tick);
+        }
+
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, []);
+
+    // ── Hover detection (no getComputedStyle — that was the lag source) ────
     useEffect(() => {
         function onOver(e) {
             const el = e.target;
             const tag = el.tagName?.toLowerCase();
             const role = el.getAttribute?.("role");
-            // NOTE: removed window.getComputedStyle(el) check — it forces a
-            // synchronous style recalc on EVERY mouseover across the page,
-            // which was the main source of the lag/stutter. Tag + role +
-            // explicit onclick covers the real-world cases without the cost.
             const isClickable =
                 tag === "button" || tag === "a" || tag === "input" ||
                 tag === "textarea" || tag === "select" || tag === "label" ||
@@ -262,134 +192,115 @@ export default function SmartCursor() {
         return null;
     }
 
-    // Duplicate mount — another SmartCursor is already active. Render nothing.
-    if (!isPrimary) return null;
-
     const cfg = getStateConfig(cursorState, accent, colors);
 
     return (
         <>
-            {/* ── Outer ring: fixed-size anchor, ring centered inside via flex ── */}
-            <motion.div
+            <style>{`
+                @keyframes sentinel-cursor-spin {
+                    from { transform: rotate(0deg); }
+                    to   { transform: rotate(360deg); }
+                }
+                @keyframes sentinel-cursor-pulse {
+                    0%, 100% { transform: scale(1); }
+                    50%      { transform: scale(1.5); }
+                }
+            `}</style>
+
+            {/* Position anchor — the ONLY element the rAF loop touches for
+                the ring. Zero-size, fixed at (0,0), moved purely by transform. */}
+            <div
+                ref={ringRef}
                 style={{
                     position: "fixed",
                     top: 0,
                     left: 0,
-                    x: outerX,
-                    y: outerY,
-                    marginLeft: -ANCHOR_SIZE / 2,
-                    marginTop: -ANCHOR_SIZE / 2,
-                    width: ANCHOR_SIZE,
-                    height: ANCHOR_SIZE,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    width: 0,
+                    height: 0,
                     pointerEvents: "none",
                     zIndex: 2147483647,
                     willChange: "transform",
                 }}
             >
-                <motion.div
-                    animate={{
-                        width: clicked ? cfg.outerSize * 0.85 : cfg.outerSize,
-                        height: clicked ? cfg.outerSize * 0.85 : cfg.outerSize,
-                        border: cfg.outerBorder,
-                        borderRadius: cfg.outerRadius,
-                        opacity: visible ? cfg.outerOpacity : 0,
-                        rotate: cfg.outerRotate ? [0, 360] : 0,
-                    }}
-                    transition={{
-                        width: { type: "spring", stiffness: 400, damping: 28 },
-                        height: { type: "spring", stiffness: 400, damping: 28 },
-                        border: { duration: 0.2 },
-                        borderRadius: { duration: 0.2 },
-                        opacity: { duration: 0.2 },
-                        rotate: cfg.outerRotate
-                            ? { duration: 2.5, ease: "linear", repeat: Infinity }
-                            : { duration: 0.2 },
+                {/* Visual ring — fixed layout size, resized/rotated purely
+                    via CSS. Its own live size never affects the anchor's
+                    position transform above, because they're separate nodes. */}
+                <div
+                    style={{
+                        position: "absolute",
+                        top: -RING_BASE / 2,
+                        left: -RING_BASE / 2,
+                        width: RING_BASE,
+                        height: RING_BASE,
+                        border: cfg.border,
+                        borderRadius: cfg.radius,
+                        opacity: visible ? cfg.opacity : 0,
+                        transform: `scale(${cfg.scale})`,
+                        transition: "border 0.2s ease, border-radius 0.2s ease, opacity 0.2s ease, transform 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+                        animation: cfg.rotate ? "sentinel-cursor-spin 2.5s linear infinite" : "none",
                     }}
                 />
-            </motion.div>
+            </div>
 
-            {/* ── Inner dot: same fixed-anchor pattern ── */}
-            <motion.div
+            {/* Inner dot — same anchor/visual split */}
+            <div
+                ref={dotRef}
                 style={{
                     position: "fixed",
                     top: 0,
                     left: 0,
-                    x: innerX,
-                    y: innerY,
-                    marginLeft: -ANCHOR_SIZE / 2,
-                    marginTop: -ANCHOR_SIZE / 2,
-                    width: ANCHOR_SIZE,
-                    height: ANCHOR_SIZE,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+                    width: 0,
+                    height: 0,
                     pointerEvents: "none",
                     zIndex: 2147483647,
                     willChange: "transform",
                 }}
             >
-                <motion.div
-                    animate={{
-                        width: clicked ? cfg.innerSize * 1.5 : cfg.innerSize,
-                        height: clicked ? cfg.innerSize * 1.5 : cfg.innerSize,
-                        background: cfg.innerBg,
+                <div
+                    style={{
+                        position: "absolute",
+                        top: -DOT_BASE / 2,
+                        left: -DOT_BASE / 2,
+                        width: DOT_BASE,
+                        height: DOT_BASE,
+                        background: cfg.dotBg,
                         borderRadius: cfg.textCursor ? "2px" : "50%",
-                        boxShadow: cfg.innerShadow,
+                        boxShadow: cfg.dotShadow,
                         opacity: visible ? 1 : 0,
-                        scale: cfg.pulse ? [1, 1.5, 1] : 1,
-                    }}
-                    transition={{
-                        width: { type: "spring", stiffness: 800, damping: 35 },
-                        height: { type: "spring", stiffness: 800, damping: 35 },
-                        background: { duration: 0.15 },
-                        borderRadius: { duration: 0.15 },
-                        opacity: { duration: 0.15 },
-                        scale: cfg.pulse
-                            ? { duration: 0.6, ease: "easeInOut", repeat: Infinity }
-                            : { duration: 0.15 },
+                        transform: `scale(${cfg.dotScale})`,
+                        transition: "background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.2s cubic-bezier(0.34,1.56,0.64,1)",
+                        animation: cfg.pulse ? "sentinel-cursor-pulse 0.6s ease-in-out infinite" : "none",
                     }}
                 />
-            </motion.div>
+            </div>
 
-            {/* ── Context label ── */}
-            <AnimatePresence>
-                {cursorLabel && visible && (
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.8, y: 4 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.8, y: 2 }}
-                        transition={{ duration: 0.15 }}
-                        style={{
-                            position: "fixed",
-                            top: 0,
-                            left: 0,
-                            x: outerX,
-                            y: outerY,
-                            translateX: "10px",
-                            translateY: "14px",
-                            pointerEvents: "none",
-                            zIndex: 2147483647,
-                            fontFamily: "var(--font-accent)",
-                            fontSize: "0.58rem",
-                            fontWeight: 700,
-                            letterSpacing: "0.1em",
-                            textTransform: "uppercase",
-                            color: cfg.color,
-                            background: "rgba(0,0,0,0.6)",
-                            backdropFilter: "blur(8px)",
-                            padding: "2px 7px",
-                            borderRadius: 4,
-                            border: `1px solid ${cfg.color}40`,
-                            whiteSpace: "nowrap",
-                        }}
-                    >
-                        {cursorLabel}
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {/* Context label — follows the ring anchor */}
+            {cursorLabel && visible && (
+                <div
+                    ref={labelRef}
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        pointerEvents: "none",
+                        zIndex: 2147483647,
+                        fontFamily: "var(--font-accent)",
+                        fontSize: "0.58rem",
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: cfg.color,
+                        background: "rgba(0,0,0,0.6)",
+                        backdropFilter: "blur(8px)",
+                        padding: "2px 7px",
+                        borderRadius: 4,
+                        border: `1px solid ${cfg.color}40`,
+                        whiteSpace: "nowrap",
+                    }}
+                >
+                    {cursorLabel}
+                </div>
+            )}
         </>
     );
 }

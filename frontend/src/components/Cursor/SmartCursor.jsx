@@ -157,7 +157,33 @@ export default function SmartCursor() {
     useEffect(() => {
         if (window.matchMedia("(hover: none)").matches) return;
 
+        let lastMove = { x: -999, y: -999, t: 0 };
+
         function onMove(e) {
+            const now = performance.now();
+            const dx = Math.abs(e.clientX - lastMove.x);
+            const dy = Math.abs(e.clientY - lastMove.y);
+            const dt = now - lastMove.t;
+
+            // DEBUG INSTRUMENTATION — catches the random-jump bug in the act.
+            // A real mouse can't move >150px in <50ms at normal DPI/polling
+            // rates. If this fires, something OTHER than natural mouse motion
+            // is feeding a bad coordinate into this handler (e.g. an iframe,
+            // a modal with its own coordinate space, or a stray event from a
+            // different element). Remove this block once the cause is found.
+            if (dt > 0 && dt < 50 && (dx > 150 || dy > 150) && lastMove.t !== 0) {
+                // eslint-disable-next-line no-console
+                console.warn(
+                    "[SmartCursor] JUMP DETECTED:",
+                    `from (${lastMove.x}, ${lastMove.y}) to (${e.clientX}, ${e.clientY})`,
+                    `in ${dt.toFixed(1)}ms`,
+                    "\ntarget element:", e.target,
+                    "\nisTrusted:", e.isTrusted,
+                );
+                console.trace("[SmartCursor] jump stack trace");
+            }
+
+            lastMove = { x: e.clientX, y: e.clientY, t: now };
             rawX.set(e.clientX);
             rawY.set(e.clientY);
             if (!visible) setVisible(true);

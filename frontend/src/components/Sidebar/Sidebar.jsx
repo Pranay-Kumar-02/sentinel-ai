@@ -66,6 +66,13 @@ const NAV_ITEMS = [
         group: "intel",
     },
     {
+        id: "dashboard",
+        label: "Personal Dashboard",
+        icon: "🛡️",
+        path: "/dashboard",
+        group: "intel",
+    },
+    {
         id: "learn",
         label: "Learn",
         icon: "🎓",

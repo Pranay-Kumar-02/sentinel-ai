@@ -62,6 +62,7 @@ const History = lazy(() => import("./pages/History"));
 const Learn = lazy(() => import("./pages/Learn"));
 const Settings = lazy(() => import("./pages/Settings"));
 const About = lazy(() => import("./pages/About"));
+const PersonalDashboard = lazy(() => import("./pages/PersonalDashboard"));
 
 
 // AICopilot — graceful fallback if not yet built
@@ -89,6 +90,7 @@ const ROUTES = {
   "/cve": CVEPulse,
   "/qrscanner": QRSafeScanner,
   "/score": SentinelScore,
+  "/dashboard": PersonalDashboard,
 };
 
 const PAGE_TITLES = {
@@ -107,6 +109,7 @@ const PAGE_TITLES = {
   "/typosquat": "Typosquat Watchdog — Sentinel AI",
   "/cve": "CVE Pulse — Sentinel AI",
   "/qrscanner": "QR Safe Scanner — Sentinel AI",
+  "/dashboard": "Personal Dashboard — Sentinel AI",
 
 };
 

@@ -23,9 +23,159 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOT SEQUENCE — a full-screen cinematic intro that plays once before the
+// dashboard reveals. This is the actual "wow" moment: a bare page that just
+// fades its content in reads as a webpage. A page that boots up like a
+// security system reads as a product. Skippable (click/keypress), and only
+// plays the full version once per browser session — repeat visits within
+// the same session get an instant reveal so it never becomes annoying.
+//
+// The log lines correspond to real steps this page actually performs
+// (reading scan history, preparing the breach-check channel, reading
+// device signature, compiling the score) — the pacing is deliberately
+// theatrical (those operations are near-instant in reality), the same way
+// any splash/boot screen paces real work for effect. The DATA itself stays
+// 100% real; only the reveal choreography is stylized.
+// ─────────────────────────────────────────────────────────────────────────────
+const BOOT_STEPS = [
+    "Reading local scan history...",
+    "Establishing breach-check channel...",
+    "Reading device & browser signature...",
+    "Compiling Command Ring...",
+];
+
+function BootSequence({ colors, onComplete }) {
+    const [stepIndex, setStepIndex] = useState(-1);
+    const [flashing, setFlashing] = useState(false);
+
+    useEffect(() => {
+        const perStep = 480;
+        const timers = BOOT_STEPS.map((_, i) =>
+            setTimeout(() => setStepIndex(i), 260 + i * perStep)
+        );
+        const flashTimer = setTimeout(() => setFlashing(true), 260 + BOOT_STEPS.length * perStep + 260);
+        const doneTimer = setTimeout(() => onComplete(), 260 + BOOT_STEPS.length * perStep + 700);
+
+        function skip() { onComplete(); }
+        window.addEventListener("keydown", skip);
+        window.addEventListener("click", skip, { once: true });
+
+        return () => {
+            timers.forEach(clearTimeout);
+            clearTimeout(flashTimer);
+            clearTimeout(doneTimer);
+            window.removeEventListener("keydown", skip);
+            window.removeEventListener("click", skip);
+        };
+    }, [onComplete]);
+
+    const progress = Math.min(((stepIndex + 1) / BOOT_STEPS.length) * 100, 100);
+
+    return (
+        <motion.div
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35 }}
+            style={{
+                position: "fixed", inset: 0, zIndex: 9999,
+                background: colors.bg,
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                overflow: "hidden", cursor: "pointer",
+            }}
+        >
+            {/* Faint moving scanline grid for atmosphere */}
+            <motion.div
+                animate={{ backgroundPositionY: [0, 40] }}
+                transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                style={{
+                    position: "absolute", inset: 0, opacity: 0.05, pointerEvents: "none",
+                    backgroundImage: `repeating-linear-gradient(0deg, ${colors.accent} 0px, transparent 1px, transparent 40px)`,
+                }}
+            />
+
+            {/* Glitch-flicker title */}
+            <motion.div
+                initial={{ opacity: 0, letterSpacing: "0.4em" }}
+                animate={{ opacity: 1, letterSpacing: "0.18em" }}
+                transition={{ duration: 0.6 }}
+                style={{ position: "relative", marginBottom: 30 }}
+            >
+                <div style={{
+                    fontFamily: "var(--font-accent)", fontSize: "0.95rem", fontWeight: 800,
+                    color: colors.text, textTransform: "uppercase",
+                }}>
+                    Sentinel Security Matrix
+                </div>
+                <motion.div
+                    animate={{ opacity: [0, 0.5, 0], x: [0, -2, 2, 0] }}
+                    transition={{ duration: 0.25, repeat: 5, repeatDelay: 0.6 }}
+                    style={{
+                        position: "absolute", inset: 0, fontFamily: "var(--font-accent)", fontSize: "0.95rem",
+                        fontWeight: 800, color: colors.accent, textTransform: "uppercase", letterSpacing: "0.18em",
+                        mixBlendMode: "screen",
+                    }}
+                >
+                    Sentinel Security Matrix
+                </motion.div>
+            </motion.div>
+
+            {/* Sequential status log */}
+            <div style={{ width: 300, display: "flex", flexDirection: "column", gap: 8, marginBottom: 22 }}>
+                {BOOT_STEPS.map((step, i) => (
+                    <motion.div
+                        key={step}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: i <= stepIndex ? 1 : 0.15, x: 0 }}
+                        transition={{ duration: 0.3 }}
+                        style={{ display: "flex", alignItems: "center", gap: 8 }}
+                    >
+                        <span style={{
+                            width: 12, fontSize: "0.68rem", color: colors.green, fontFamily: "var(--font-mono)",
+                        }}>
+                            {i < stepIndex ? "✓" : i === stepIndex ? "…" : ""}
+                        </span>
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: colors.textMuted, letterSpacing: "0.02em" }}>
+                            {step}
+                        </span>
+                    </motion.div>
+                ))}
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ width: 220, height: 2, background: colors.bgSurface, borderRadius: 999, overflow: "hidden" }}>
+                <motion.div
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    style={{ height: "100%", background: colors.accent, boxShadow: `0 0 8px ${colors.accent}` }}
+                />
+            </div>
+
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: colors.textDim, marginTop: 18, letterSpacing: "0.08em" }}>
+                click or press any key to skip
+            </div>
+
+            {/* Expanding flash-wipe transition into the dashboard */}
+            <AnimatePresence>
+                {flashing && (
+                    <motion.div
+                        initial={{ scale: 0, opacity: 1 }}
+                        animate={{ scale: 40, opacity: 0 }}
+                        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                        style={{
+                            position: "absolute", top: "50%", left: "50%", width: 20, height: 20,
+                            borderRadius: "50%", background: colors.accent,
+                            translateX: "-50%", translateY: "-50%", pointerEvents: "none",
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+        </motion.div>
+    );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. SCAN HISTORY ENGINE — identical logic to SentinelScore.jsx (kept in
@@ -493,26 +643,59 @@ const cardVariants = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pillar card v2 — glass background, colored top accent bar, icon in a
-// glowing badge, hover lift.
+// Pillar card v3 — glass background, colored top accent bar, icon in a
+// glowing badge, hover lift + mouse-reactive 3D tilt. The tilt is what
+// sells "physical glass panel" instead of "flat div" — it's a subtle,
+// bounded rotation driven by cursor position relative to the card center,
+// eased with a spring so it settles smoothly instead of snapping.
 // ─────────────────────────────────────────────────────────────────────────────
 function PillarCard({ title, icon, accentColor, colors, children }) {
+    const ref = useRef(null);
+    const mx = useMotionValue(0.5);
+    const my = useMotionValue(0.5);
+    const springCfg = { stiffness: 220, damping: 22, mass: 0.6 };
+    const rotateX = useSpring(useTransform(my, [0, 1], [7, -7]), springCfg);
+    const rotateY = useSpring(useTransform(mx, [0, 1], [-7, 7]), springCfg);
+    const glowX = useTransform(mx, [0, 1], ["0%", "100%"]);
+    const glowY = useTransform(my, [0, 1], ["0%", "100%"]);
+
+    function handleMove(e) {
+        const rect = ref.current.getBoundingClientRect();
+        mx.set((e.clientX - rect.left) / rect.width);
+        my.set((e.clientY - rect.top) / rect.height);
+    }
+    function handleLeave() { mx.set(0.5); my.set(0.5); }
+
     return (
         <motion.div
+            ref={ref}
             variants={cardVariants}
-            whileHover={{ y: -5, boxShadow: `0 12px 30px ${accentColor}22` }}
+            onMouseMove={handleMove}
+            onMouseLeave={handleLeave}
+            whileHover={{ y: -5, boxShadow: `0 16px 34px ${accentColor}28` }}
             style={{
                 background: `linear-gradient(180deg, ${colors.bgCard}, ${colors.bgCard}dd)`,
                 backdropFilter: "blur(10px)",
                 border: `1px solid ${colors.border}`,
                 borderRadius: 18, padding: "22px", position: "relative", overflow: "hidden",
                 transition: "box-shadow 0.25s ease",
+                transformStyle: "preserve-3d",
+                perspective: 800,
+                rotateX, rotateY,
             }}
         >
+            {/* Cursor-follow glow spotlight */}
+            <motion.div
+                style={{
+                    position: "absolute", inset: 0, pointerEvents: "none", opacity: 0.5,
+                    background: useTransform([glowX, glowY], ([gx, gy]) => `radial-gradient(220px circle at ${gx} ${gy}, ${accentColor}18, transparent 70%)`),
+                }}
+            />
+
             {/* Top accent bar */}
             <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, transparent, ${accentColor}, transparent)` }} />
 
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, position: "relative" }}>
                 <div style={{
                     width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
                     background: `${accentColor}18`, border: `1px solid ${accentColor}35`,
@@ -524,7 +707,7 @@ function PillarCard({ title, icon, accentColor, colors, children }) {
                     {title}
                 </span>
             </div>
-            {children}
+            <div style={{ position: "relative" }}>{children}</div>
         </motion.div>
     );
 }
@@ -564,6 +747,15 @@ export default function PersonalDashboard() {
     const { colors } = useTheme();
     const { setCursor, resetCursor } = useCursor();
 
+    // Full cinematic boot only plays once per browser session — repeat
+    // visits (e.g. navigating away and back) get an instant reveal so the
+    // intro never becomes something the user has to sit through repeatedly.
+    const [booted, setBooted] = useState(() => sessionStorage.getItem("sentinel_dashboard_booted") === "true");
+    const handleBootComplete = useCallback(() => {
+        sessionStorage.setItem("sentinel_dashboard_booted", "true");
+        setBooted(true);
+    }, []);
+
     const [scanResult, setScanResult] = useState(null);
     const [deviceChecks, setDeviceChecks] = useState([]);
     const [pwInput, setPwInput] = useState("");
@@ -599,6 +791,18 @@ export default function PersonalDashboard() {
         const passwordScore = pwResult == null ? "—" : pwResult.breached ? 20 : 100;
         return { scan: scanScore, device: deviceScore, password: passwordScore };
     }, [scanResult, deviceChecks, pwResult]);
+
+    // Boot sequence takes priority over the data-loading spinner — scan
+    // data loads synchronously within the same tick, so by the time the
+    // boot sequence's flash-wipe fires, scanResult is already populated.
+    // This ordering means the fancy intro is what plays, never a bare spinner.
+    if (!booted) {
+        return (
+            <AnimatePresence>
+                <BootSequence colors={colors} onComplete={handleBootComplete} />
+            </AnimatePresence>
+        );
+    }
 
     if (!scanResult) {
         return (

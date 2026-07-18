@@ -6,6 +6,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# Switched from "openrouter/auto" (routes across PAID models, which is what
+# caused the 402 "requires more credits" errors) to "openrouter/free" —
+# OpenRouter's own free-model auto-router. It only routes to models with a
+# genuine $0 price, so this works with a zero or negative account balance.
+# Rate limits apply (20 req/min, 50 req/day without any credits ever
+# purchased, 1000/day if you ever add just $10) — fine for development and
+# demoing, worth revisiting if this ever needs to handle heavy real traffic.
 MODEL = "openrouter/free"
 
 SYSTEM_PROMPT = """You are Sentinel AI — an elite cybersecurity threat analyst with expertise in:
@@ -30,7 +37,13 @@ TECHNICAL_ANALYSIS:
 [Deep technical breakdown — domain patterns, language manipulation, urgency tactics, impersonation signals, etc.]
 
 MITRE_ATTACK:
-[Relevant MITRE ATT&CK technique ID and name, or "Not Applicable"]
+[Pick the single most accurate technique ID from this reference — do not guess or invent a technique, and do not hedge with phrases like "(adapted for...)". If the input contains a malicious LINK the victim is asked to click, use T1566.002, never T1566.001. If it involves an ATTACHED FILE, use T1566.001. If genuinely nothing fits, say "Not Applicable" rather than forcing an approximate match.
+
+Reference (Initial Access / Phishing sub-techniques):
+- T1566.001 — Phishing: Spearphishing Attachment (malicious FILE attached to the message)
+- T1566.002 — Phishing: Spearphishing Link (malicious LINK/URL the victim is asked to click — this is the correct choice for most SMS/WhatsApp/email scam links)
+- T1566.003 — Phishing: Spearphishing via Service (delivered through a third-party platform/social media rather than direct email)
+- T1078 — Valid Accounts (use only if the scenario is about reuse of already-compromised credentials, not the initial phishing delivery itself)]
 
 INDICATORS_OF_COMPROMISE:
 [List all suspicious URLs, domains, IPs, phone numbers, or email addresses found]

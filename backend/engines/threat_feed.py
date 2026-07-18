@@ -32,6 +32,7 @@ import os
 import re
 import time
 import asyncio
+from collections import deque
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -63,10 +64,48 @@ _fetch_lock = asyncio.Lock()
 
 IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
-# ip-api.com's free tier allows 45 requests/minute. Bound concurrent geo
-# lookups so a full refresh (up to FETCH_LIMIT records) doesn't burst past
-# that in a single instant and get some of them rate-limited.
-_geo_semaphore = asyncio.Semaphore(35)
+
+# ── Rate limiter for ip-api.com geo lookups ────────────────────────────────
+# ip-api.com's free tier is capped at 45 requests/minute — a ROLLING TIME
+# WINDOW, not a concurrency limit. A plain asyncio.Semaphore only bounds how
+# many requests are in-flight at once; since each geo lookup finishes in well
+# under a second, a semaphore alone lets a full 60-item refresh blast through
+# 45+ requests in just a few seconds, tripping HTTP 429 on the rest — which
+# then gets silently swallowed by the bare `except Exception: pass` below,
+# leaving some real threat items missing country/lat/lon data with no visible
+# error anywhere. Verified current limit: https://ip-api.com/docs/legal
+# (45 req/min on the free, HTTP-only endpoint).
+#
+# This limiter reserves each caller a future time slot (never more than
+# `rate` slots per rolling `period` seconds), then releases the lock and
+# sleeps OUTSIDE it — so callers still run concurrently once they each have
+# a valid slot, rather than fully serializing everything.
+class AsyncRateLimiter:
+    def __init__(self, rate: int, period: float):
+        self.rate = rate
+        self.period = period
+        self._lock = asyncio.Lock()
+        self._slots = deque()  # scheduled execution times, oldest first
+
+    async def acquire(self):
+        async with self._lock:
+            now = time.monotonic()
+            while self._slots and now - self._slots[0] >= self.period:
+                self._slots.popleft()
+            wait = 0.0
+            if len(self._slots) >= self.rate:
+                wait = self.period - (now - self._slots[0])
+            self._slots.append(now + wait)
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+
+# 40/min rather than the full documented 45/min — a small safety margin so
+# ordinary timing jitter never trips the real external cap. A full 60-item
+# cold-start refresh then takes roughly 60/40 * 60s ≈ 90s to fully populate
+# geo data, which is a non-issue since the cache itself only refreshes once
+# every 5 minutes (CACHE_TTL_SECONDS) — plenty of headroom.
+_geo_rate_limiter = AsyncRateLimiter(rate=40, period=60)
 
 # ── Heuristic category → likely MITRE technique (see honesty note above) ──────
 THREAT_TYPE_TO_MITRE = {
@@ -128,36 +167,36 @@ def _confidence(record: dict) -> int:
     return min(score, 99)
 
 
-async def _geo_lookup(host: str) -> dict:
+async def _geo_lookup(host: str, client: httpx.AsyncClient) -> dict:
     """Resolve host to IP + country code + lat/lon (for map/globe plotting)."""
     ip = host if IP_RE.match(host) else extract_ip(host)
     if not ip:
         return {"ip": None, "country_code": None, "country": "Unknown", "lat": None, "lon": None}
-    async with _geo_semaphore:
-        try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                res = await client.get(
-                    f"http://ip-api.com/json/{ip}?fields=status,countryCode,country,lat,lon"
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    if data.get("status") == "success":
-                        return {
-                            "ip": ip,
-                            "country_code": data.get("countryCode"),
-                            "country": data.get("country", "Unknown"),
-                            "lat": data.get("lat"),
-                            "lon": data.get("lon"),
-                        }
-        except Exception:
-            pass
+
+    await _geo_rate_limiter.acquire()
+    try:
+        res = await client.get(
+            f"http://ip-api.com/json/{ip}?fields=status,countryCode,country,lat,lon"
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("status") == "success":
+                return {
+                    "ip": ip,
+                    "country_code": data.get("countryCode"),
+                    "country": data.get("country", "Unknown"),
+                    "lat": data.get("lat"),
+                    "lon": data.get("lon"),
+                }
+    except Exception:
+        pass
     return {"ip": ip, "country_code": None, "country": "Unknown", "lat": None, "lon": None}
 
 
-async def _transform(record: dict) -> dict:
+async def _transform(record: dict, client: httpx.AsyncClient) -> dict:
     """Convert a raw URLhaus record into Sentinel's ThreatItem shape."""
     host = record.get("host", "")
-    geo = await _geo_lookup(host)
+    geo = await _geo_lookup(host, client)
     severity = _classify_severity(record)
     type_label = _classify_type(record)
 
@@ -204,12 +243,13 @@ async def _refresh_cache() -> None:
         raise RuntimeError(f"URLhaus query failed: {data.get('query_status')}")
 
     records = data.get("urls", [])[:FETCH_LIMIT]
-    # Run all transforms (incl. geo lookups) concurrently instead of one at a
-    # time — this was the main cause of slow loads. Bounded by a semaphore
-    # (see _geo_lookup) to stay under ip-api.com's free-tier rate limit
-    # (45 req/min) during the burst, rather than silently dropping
-    # coordinates on threats that get rate-limited.
-    items = await asyncio.gather(*(_transform(r) for r in records))
+    # Run all transforms concurrently, sharing ONE httpx client/connection
+    # pool across the whole batch (instead of spinning up a new client per
+    # geo lookup — wasteful and slower). Actual request PACING against
+    # ip-api.com's 45/min limit is handled by _geo_rate_limiter, not by
+    # connection count, so this is safe to fan out with gather().
+    async with httpx.AsyncClient(timeout=8) as geo_client:
+        items = await asyncio.gather(*(_transform(r, geo_client) for r in records))
     items = list(items)
     items.sort(key=lambda x: x["timestamp"], reverse=True)
 

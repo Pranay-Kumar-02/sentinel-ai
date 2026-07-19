@@ -2,6 +2,7 @@ import httpx
 import os
 import re
 import socket
+import asyncio
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
@@ -32,7 +33,6 @@ async def check_virustotal(url: str) -> dict:
     try:
         headers = {"x-apikey": VIRUSTOTAL_KEY}
 
-        # Submit URL for scanning
         async with httpx.AsyncClient(timeout=30) as client:
             submit = await client.post(
                 "https://www.virustotal.com/api/v3/urls",
@@ -42,26 +42,57 @@ async def check_virustotal(url: str) -> dict:
             if submit.status_code != 200:
                 return {"error": f"VirusTotal submission failed: {submit.status_code}"}
 
-            # Get the analysis ID
             analysis_id = submit.json().get("data", {}).get("id", "")
             if not analysis_id:
                 return {"error": "No analysis ID returned"}
 
-            # Get results
-            result = await client.get(
-                f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
-                headers=headers
-            )
-            if result.status_code != 200:
-                return {"error": f"VirusTotal result fetch failed: {result.status_code}"}
+            # FIX: VirusTotal scans run asynchronously. A freshly-submitted
+            # URL (exactly the kind of brand-new phishing domain we most
+            # need this check for) is often still "queued" the instant we
+            # ask for results, returning 0 engines reported. This was
+            # previously reported as verdict "CLEAN" — identical to a
+            # genuinely scanned, confirmed-safe result. Now we poll briefly
+            # for real completion (capped at 2 total GET requests, on top of
+            # the 1 POST — VirusTotal's free tier allows only 4 requests per
+            # minute, so this stays safely within budget even when checking
+            # multiple URLs in one /fullscan call). If still incomplete
+            # after that, we say so explicitly instead of mislabeling it.
+            status = None
+            data = {}
+            max_polls = 2
+            for attempt in range(max_polls):
+                result = await client.get(
+                    f"https://www.virustotal.com/api/v3/analyses/{analysis_id}",
+                    headers=headers
+                )
+                if result.status_code != 200:
+                    return {"error": f"VirusTotal result fetch failed: {result.status_code}"}
+                data = result.json()
+                status = data.get("data", {}).get("attributes", {}).get("status")
+                if status == "completed":
+                    break
+                if attempt < max_polls - 1:
+                    await asyncio.sleep(2)
 
-            data   = result.json()
             stats  = data.get("data", {}).get("attributes", {}).get("stats", {})
             malicious   = stats.get("malicious", 0)
             suspicious  = stats.get("suspicious", 0)
             harmless    = stats.get("harmless", 0)
             undetected  = stats.get("undetected", 0)
             total       = malicious + suspicious + harmless + undetected
+
+            if status != "completed" or total == 0:
+                return {
+                    "malicious": malicious,
+                    "suspicious": suspicious,
+                    "harmless": harmless,
+                    "undetected": undetected,
+                    "total_engines": total,
+                    "threat_score": 0,
+                    "verdict": "PENDING",
+                    "analysis_id": analysis_id,
+                    "note": "VirusTotal scan not yet complete — this is an incomplete result, not a confirmed-clean verdict.",
+                }
 
             return {
                 "malicious":   malicious,
@@ -79,25 +110,19 @@ async def check_virustotal(url: str) -> dict:
 
 # ── WHOIS ──────────────────────────────────────────────────────────────────────
 async def check_whois(domain: str) -> dict:
-    """Get WHOIS information for a domain."""
+    """
+    Get WHOIS information for a domain.
+
+    FIX: previously tried WhoisFreaks first, authenticating with the literal
+    string "apiKey=free" — not a real credential against their actual API
+    (their genuine free tier requires a real key from a real signup). That
+    call has been silently failing on every single request, confirmed by
+    real testing. RDAP is now primary: it's a free, keyless, standardized
+    protocol maintained directly by domain registries — no account, no key,
+    no third-party free-tier terms that can change. Structurally the most
+    stable option available for this.
+    """
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            res = await client.get(
-                f"https://api.whoisfreaks.com/v1.0/whois?apiKey=free&domainName={domain}&type=live",
-                timeout=10
-            )
-            if res.status_code == 200:
-                data = res.json()
-                return {
-                    "registrar":      data.get("domain_registrar", {}).get("registrar_name", "Unknown"),
-                    "created":        data.get("create_date", "Unknown"),
-                    "expires":        data.get("expiry_date", "Unknown"),
-                    "updated":        data.get("update_date", "Unknown"),
-                    "status":         data.get("domain_status", []),
-                    "name_servers":   data.get("name_servers", []),
-                    "country":        data.get("registrant_info", {}).get("country", "Unknown"),
-                }
-        # Fallback — use rdap
         async with httpx.AsyncClient(timeout=10) as client:
             res = await client.get(f"https://rdap.org/domain/{domain}")
             if res.status_code == 200:
@@ -112,7 +137,7 @@ async def check_whois(domain: str) -> dict:
                     "name_servers": [ns.get("ldhName", "") for ns in data.get("nameservers", [])],
                     "country":      "Unknown",
                 }
-        return {"error": "WHOIS lookup failed"}
+        return {"error": "WHOIS/RDAP lookup failed — domain may not support RDAP or does not exist"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -296,8 +321,9 @@ async def run_osint(url: str) -> dict:
     checks_unavailable = []
 
     # ── VirusTotal ──────────────────────────────────────────────────────
-    if "error" in vt_result:
-        checks_unavailable.append("VirusTotal")
+    vt_pending = vt_result.get("verdict") == "PENDING"
+    if "error" in vt_result or vt_pending:
+        checks_unavailable.append("VirusTotal (scan pending)" if vt_pending else "VirusTotal")
     else:
         checks_run += 1
         if vt_result.get("malicious", 0) > 0:

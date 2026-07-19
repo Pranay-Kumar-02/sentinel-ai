@@ -85,7 +85,6 @@ const NAV_ITEMS = [
         icon: "🎓",
         path: "/learn",
         group: "intel",
-        soon: true,
     },
     {
         id: "settings",

@@ -45,6 +45,13 @@ const NAV_ITEMS = [
         group: "main",
     },
     {
+        id: "easycheck",
+        label: "Is This Safe?",
+        icon: "🛟",
+        path: "/easy",
+        group: "main",
+    },
+    {
         id: "email",
         label: "Email Analyzer",
         icon: "📧",

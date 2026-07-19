@@ -1,10 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SENTINEL AI — Learn (Page)
-// Phishing simulation quizzes + security awareness modules.
-// "Sentinel Learn" from the project roadmap (Phase 8).
+// SENTINEL AI — Learn (Page) v2
+// Merges the original "Spot the Fake" quiz (kept as-is, it was already
+// excellent) with a new tiered lesson library — Newbie / Beginner /
+// Intermediate / Experienced — across 11 topics, each escalating in depth
+// rather than repeating content, each ending in a real link to the tool
+// that topic maps to.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
@@ -12,8 +15,10 @@ import { useLocalStorage, STORAGE_KEYS } from "../../hooks/useLocalStorage";
 import { SectionHead } from "../../components/Common/Tooltip";
 import { Badge } from "../../components/Common/Badge";
 import Counter from "../../components/Common/Counter";
+import { TIERS, TOPICS, getLearnProgress, getSelectedTier, setSelectedTier } from "./learnContent";
+import TopicModal from "./TopicModal";
 
-// ── Quiz data — "Can you spot the fake?" ──────────────────────────────────────
+// ── Quiz data — "Can you spot the fake?" (UNCHANGED from original) ───────────
 
 const QUIZ_QUESTIONS = [
     {
@@ -63,18 +68,7 @@ const QUIZ_QUESTIONS = [
     },
 ];
 
-// ── Learning modules ───────────────────────────────────────────────────────────
-
-const MODULES = [
-    { id: "phishing", icon: "🪝", title: "Phishing Detection", desc: "Spot fake emails, links, and lures before you click.", lessons: 8, color: "amber" },
-    { id: "smishing", icon: "📱", title: "SMS & Smishing", desc: "India-specific SMS scams: UPI, KYC, lottery fraud.", lessons: 6, color: "red" },
-    { id: "vishing", icon: "📞", title: "Voice Phishing", desc: "Recognize fake bank calls and impersonation scams.", lessons: 5, color: "orange" },
-    { id: "bec", icon: "💼", title: "Business Email Compromise", desc: "Protect your organization from CEO fraud and BEC.", lessons: 7, color: "purple" },
-    { id: "deepfakes", icon: "🎭", title: "Deepfakes & AI Scams", desc: "Identify AI-generated voice and video manipulation.", lessons: 4, color: "blue" },
-    { id: "passwords", icon: "🔑", title: "Password & Credential Hygiene", desc: "Build unbreakable password habits.", lessons: 5, color: "green" },
-];
-
-// ── Quiz component ────────────────────────────────────────────────────────────
+// ── Quiz component (UNCHANGED from original) ─────────────────────────────────
 
 function PhishingQuiz({ colors }) {
     const { setCursor, resetCursor } = useCursor();
@@ -348,117 +342,168 @@ function PhishingQuiz({ colors }) {
     );
 }
 
-// ── Module card ────────────────────────────────────────────────────────────────
+// ── Tier selector ──────────────────────────────────────────────────────────
 
-function ModuleCard({ module, index, colors }) {
-    const { setCursor, resetCursor } = useCursor();
-    const color = colors[module.color] ?? colors.accent;
-    const soft = colors[module.color + "Soft"] ?? colors.accentSoft;
-
+function TierSelector({ tier, onChange, colors }) {
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.2 }}
-            transition={{ delay: index * 0.06, type: "spring", stiffness: 260, damping: 22 }}
-            onMouseEnter={() => setCursor(CURSOR_STATES.INTERACTIVE, "SOON")}
-            onMouseLeave={resetCursor}
-            whileHover={{ y: -3 }}
-            style={{
-                background: colors.bgCard,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 16,
-                padding: 20,
-                cursor: "pointer",
-                opacity: 0.85,
-            }}
-        >
-            <div style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: soft, border: `1px solid ${color}30`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "1.3rem", marginBottom: 14,
-            }}>
-                {module.icon}
-            </div>
-            <h4 style={{ fontFamily: "var(--font-display)", fontSize: "0.92rem", fontWeight: 700, color: colors.text, margin: "0 0 6px" }}>
-                {module.title}
-            </h4>
-            <p style={{ fontFamily: "var(--font-body)", fontSize: "0.76rem", color: colors.textSub, lineHeight: 1.5, margin: "0 0 14px" }}>
-                {module.desc}
-            </p>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.65rem", color: colors.textMuted }}>
-                    {module.lessons} lessons
-                </span>
-                <Badge variant="muted" size="xs">Coming Soon</Badge>
-            </div>
-        </motion.div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", marginBottom: 32 }}>
+            {TIERS.map((t) => (
+                <motion.button
+                    key={t.id}
+                    onClick={() => onChange(t.id)}
+                    whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                    style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                        padding: "14px 20px", borderRadius: 14, cursor: "pointer", minWidth: 130,
+                        border: `2px solid ${tier === t.id ? colors.accent : colors.border}`,
+                        background: tier === t.id ? colors.accentSoft : colors.bgCard,
+                    }}
+                >
+                    <span style={{ fontSize: "1.4rem" }}>{t.icon}</span>
+                    <span style={{ fontFamily: "var(--font-display)", fontSize: "0.86rem", fontWeight: 800, color: tier === t.id ? colors.accent : colors.text }}>
+                        {t.label}
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.6rem", color: colors.textMuted, textAlign: "center" }}>
+                        {t.desc}
+                    </span>
+                </motion.button>
+            ))}
+        </div>
     );
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────────
+// ── Main page ──────────────────────────────────────────────────────────────
 
-export default function Learn() {
+export default function Learn({ onNavigate }) {
     const { colors } = useTheme();
+    const [tier, setTier] = useState(() => getSelectedTier());
+    const [progress, setProgress] = useState({});
+    const [activeTopic, setActiveTopic] = useState(null);
+
+    useEffect(() => { setProgress(getLearnProgress()); }, []);
+
+    function handleTierChange(newTier) {
+        setTier(newTier);
+        setSelectedTier(newTier);
+    }
+
+    const completedCount = useMemo(() => TOPICS.filter((t) => progress[t.id]?.completed).length, [progress]);
+    const pct = Math.round((completedCount / TOPICS.length) * 100);
+
+    const containerVariants = { hidden: {}, show: { transition: { staggerChildren: 0.05 } } };
+    const cardVariants = { hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } };
 
     return (
         <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4 }}
-            style={{
-                padding: "100px 32px 60px",
-                maxWidth: 1100,
-                margin: "0 auto",
-                minHeight: "100vh",
-            }}
+            style={{ padding: "100px 32px 60px", maxWidth: 1100, margin: "0 auto", minHeight: "100vh" }}
         >
             <SectionHead
                 label="Security Awareness"
                 title="Sentinel Learn"
-                sub="Sharpen your instincts. Spot real-world phishing attempts before they spot you."
+                sub="Sharpen your instincts. Pick your level, and go as deep as you want on the threats you'll actually run into."
                 center
             />
 
+            {/* Tier selector */}
+            <div style={{ marginTop: 32 }}>
+                <TierSelector tier={tier} onChange={handleTierChange} colors={colors} />
+            </div>
+
+            {/* Progress bar */}
+            <div style={{
+                background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 14,
+                padding: "16px 20px", marginBottom: 40, maxWidth: 560, margin: "0 auto 40px",
+            }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontFamily: "var(--font-body)", fontSize: "0.84rem", fontWeight: 600, color: colors.text }}>
+                        Your progress
+                    </span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.78rem", color: colors.textMuted }}>
+                        {completedCount} / {TOPICS.length} topics
+                    </span>
+                </div>
+                <div style={{ height: 6, background: colors.bgSurface, borderRadius: 999, overflow: "hidden" }}>
+                    <motion.div
+                        initial={{ width: 0 }} animate={{ width: `${pct}%` }}
+                        transition={{ duration: 0.8, ease: "easeOut" }}
+                        style={{ height: "100%", background: colors.accent, boxShadow: `0 0 8px ${colors.accent}` }}
+                    />
+                </div>
+            </div>
+
             {/* Quiz */}
-            <div style={{ maxWidth: 560, margin: "40px auto 60px" }}>
+            <div style={{ maxWidth: 560, margin: "0 auto 60px" }}>
                 <div style={{ textAlign: "center", marginBottom: 20 }}>
                     <Badge variant="amber" icon="🎯">Can You Spot The Fake?</Badge>
                 </div>
                 <PhishingQuiz colors={colors} />
             </div>
 
-            {/* Learning modules */}
+            {/* Topic library */}
             <div style={{ marginBottom: 24, textAlign: "center" }}>
-                <h2 style={{
-                    fontFamily: "var(--font-display)",
-                    fontSize: "1.4rem",
-                    fontWeight: 800,
-                    color: colors.text,
-                    margin: "0 0 8px",
-                }}>
-                    Learning Modules
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.4rem", fontWeight: 800, color: colors.text, margin: "0 0 8px" }}>
+                    Topic Library
                 </h2>
-                <p style={{
-                    fontFamily: "var(--font-body)",
-                    fontSize: "0.85rem",
-                    color: colors.textMuted,
-                    margin: 0,
-                }}>
-                    Structured courses launching soon — built on real attack patterns.
+                <p style={{ fontFamily: "var(--font-body)", fontSize: "0.85rem", color: colors.textMuted, margin: 0 }}>
+                    Each topic ends with a real tool you can try immediately.
                 </p>
             </div>
 
-            <div style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-                gap: 16,
-            }}>
-                {MODULES.map((m, i) => (
-                    <ModuleCard key={m.id} module={m} index={i} colors={colors} />
-                ))}
-            </div>
+            <motion.div
+                variants={containerVariants} initial="hidden" animate="show"
+                style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 }}
+            >
+                {TOPICS.map((topic) => {
+                    const done = progress[topic.id]?.completed;
+                    return (
+                        <motion.div
+                            key={topic.id}
+                            variants={cardVariants}
+                            whileHover={{ y: -4, boxShadow: `0 10px 26px ${colors.accent}18` }}
+                            onClick={() => setActiveTopic(topic)}
+                            style={{
+                                background: colors.bgCard, border: `1px solid ${done ? colors.green + "40" : colors.border}`,
+                                borderRadius: 16, padding: "20px", cursor: "pointer", position: "relative",
+                                transition: "box-shadow 0.25s ease",
+                            }}
+                        >
+                            {done && (
+                                <div style={{
+                                    position: "absolute", top: 14, right: 14, width: 22, height: 22, borderRadius: "50%",
+                                    background: colors.greenSoft, border: `1px solid ${colors.green}50`,
+                                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem", color: colors.green,
+                                }}>
+                                    ✓
+                                </div>
+                            )}
+                            <div style={{ fontSize: "1.6rem", marginBottom: 12 }}>{topic.icon}</div>
+                            <div style={{ fontFamily: "var(--font-display)", fontSize: "0.96rem", fontWeight: 700, color: colors.text, marginBottom: 6 }}>
+                                {topic.title}
+                            </div>
+                            <div style={{ fontFamily: "var(--font-body)", fontSize: "0.8rem", color: colors.textMuted, lineHeight: 1.5, minHeight: 40 }}>
+                                {topic.summary}
+                            </div>
+                        </motion.div>
+                    );
+                })}
+            </motion.div>
+
+            <AnimatePresence>
+                {activeTopic && (
+                    <TopicModal
+                        topic={activeTopic}
+                        tier={tier}
+                        onTierChange={handleTierChange}
+                        colors={colors}
+                        onClose={() => setActiveTopic(null)}
+                        onNavigate={onNavigate}
+                        onComplete={() => setProgress(getLearnProgress())}
+                    />
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

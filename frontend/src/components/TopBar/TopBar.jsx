@@ -2,12 +2,25 @@
 // SENTINEL AI — TopBar
 // Main top navigation bar. Fixed position, glass background.
 // Contains: page title, live status metrics, theme switcher, actions.
+//
+// FIX APPLIED: notifications were hardcoded fake sample data (a literal
+// "2m ago" string that never changed, no matter when you opened the
+// dropdown). Replaced with REAL notifications from two real sources:
+//   1. Your own scan history (sentinel_scan_history) — critical/dangerous
+//      verdicts you've actually triggered, real timestamps.
+//   2. The live threat feed backend (/threat-feed/live, the real
+//      URLhaus-backed feed fixed earlier) — genuine current global threats.
+// Also fixed: the red "unread" dot rendered unconditionally regardless of
+// whether anything was actually unread, and "Mark all read" had no
+// onClick handler at all — it did nothing when clicked.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+import { useThreatFeed } from "../../hooks/useThreatFeed";
+import { timeAgo } from "../../utils/helpers";
 import LiveStatus from "./LiveStatus";
 import ThemeSwitcher from "./ThemeSwitcher";
 
@@ -23,10 +36,98 @@ const PAGE_META = {
     "/about": { title: "About", icon: "ℹ️", sub: "Sentinel AI" },
 };
 
+const NOTIF_READ_KEY = "sentinel_notif_last_read";
+
+// ── Real notifications from the user's own scan history ──────────────────────
+function getScanNotifications() {
+    try {
+        const history = JSON.parse(localStorage.getItem("sentinel_scan_history") ?? "[]");
+        return history
+            .filter((h) => {
+                const v = (h.verdict ?? "").toUpperCase();
+                return v === "CRITICAL" || v === "DANGEROUS";
+            })
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 3)
+            .map((h) => {
+                const v = (h.verdict ?? "").toUpperCase();
+                return {
+                    id: `scan-${h.timestamp}-${h.input ?? h.scanType ?? ""}`,
+                    icon: v === "CRITICAL" ? "🔴" : "🟠",
+                    text: `${v === "CRITICAL" ? "Critical" : "Dangerous"} threat found in your ${h.scanType ?? "scan"}`,
+                    timestamp: h.timestamp,
+                    colorKey: v === "CRITICAL" ? "red" : "orange",
+                    source: "Your scan history",
+                    linkPath: "/history",
+                };
+            });
+    } catch {
+        return [];
+    }
+}
+
+function getLastReadTime() {
+    return localStorage.getItem(NOTIF_READ_KEY);
+}
+function setLastReadNow() {
+    const now = new Date().toISOString();
+    localStorage.setItem(NOTIF_READ_KEY, now);
+    return now;
+}
+
 export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigate }) {
     const { colors, nav, gradients } = useTheme();
     const { setCursor, resetCursor } = useCursor();
     const [notifOpen, setNotifOpen] = useState(false);
+    const [scanNotifs, setScanNotifs] = useState(() => getScanNotifications());
+    const [lastRead, setLastRead] = useState(() => getLastReadTime());
+
+    // Real global threats — same live feed used elsewhere in the app.
+    // Longer interval here (60s) since a notification bell doesn't need
+    // the same real-time granularity as the dedicated feed pages.
+    const { feed } = useThreatFeed({ maxItems: 5, intervalMs: 60_000, pauseOnBlur: true });
+
+    // Poll your own scan history every 5s — cheap (just localStorage read +
+    // filter on a small array) and means a critical/dangerous verdict from
+    // a scan you just ran surfaces on the bell within seconds, even on a
+    // completely different page, instead of waiting for you to open the
+    // dropdown to notice it existed.
+    useEffect(() => {
+        setScanNotifs(getScanNotifications());
+        const interval = setInterval(() => {
+            setScanNotifs(getScanNotifications());
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const globalNotifs = useMemo(
+        () =>
+            feed.slice(0, 2).map((item) => ({
+                id: `feed-${item.id}`,
+                icon: item.severity === "CRITICAL" ? "🔴" : "⚠️",
+                text: `${item.type} detected — ${item.domain ?? item.ioc ?? "unknown host"}`,
+                timestamp: item.timestamp,
+                colorKey: item.severity === "CRITICAL" ? "red" : "amber",
+                source: "Live threat feed",
+                linkPath: "/intelligence",
+            })),
+        [feed]
+    );
+
+    const allNotifs = useMemo(() => {
+        return [...scanNotifs, ...globalNotifs]
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 5);
+    }, [scanNotifs, globalNotifs]);
+
+    const unreadCount = useMemo(() => {
+        if (!lastRead) return allNotifs.length;
+        return allNotifs.filter((n) => new Date(n.timestamp) > new Date(lastRead)).length;
+    }, [allNotifs, lastRead]);
+
+    const handleMarkAllRead = useCallback(() => {
+        setLastRead(setLastReadNow());
+    }, []);
 
     const meta = PAGE_META[activePath] ?? PAGE_META["/"];
 
@@ -170,22 +271,24 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                         }}
                     >
                         🔔
-                        {/* Unread dot */}
-                        <motion.div
-                            animate={{ scale: [1, 1.3, 1] }}
-                            transition={{ duration: 2, repeat: Infinity }}
-                            style={{
-                                position: "absolute",
-                                top: 6,
-                                right: 6,
-                                width: 7,
-                                height: 7,
-                                borderRadius: "50%",
-                                background: colors.red,
-                                boxShadow: `0 0 6px ${colors.redGlow}`,
-                                border: `1.5px solid ${colors.bgSurface}`,
-                            }}
-                        />
+                        {/* Unread dot — only renders when something is ACTUALLY unread */}
+                        {unreadCount > 0 && (
+                            <motion.div
+                                animate={{ scale: [1, 1.3, 1] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                                style={{
+                                    position: "absolute",
+                                    top: 6,
+                                    right: 6,
+                                    width: 7,
+                                    height: 7,
+                                    borderRadius: "50%",
+                                    background: colors.red,
+                                    boxShadow: `0 0 6px ${colors.redGlow}`,
+                                    border: `1.5px solid ${colors.bgSurface}`,
+                                }}
+                            />
+                        )}
                     </motion.button>
 
                     {/* Notification dropdown */}
@@ -205,7 +308,7 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                                         position: "absolute",
                                         top: "calc(100% + 8px)",
                                         right: 0,
-                                        width: 300,
+                                        width: 320,
                                         background: colors.bgCard,
                                         backdropFilter: "var(--backdrop-blur)",
                                         border: `1px solid ${colors.border}`,
@@ -230,59 +333,83 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                                         }}>
                                             Threat Alerts
                                         </span>
-                                        <span style={{
-                                            fontSize: "0.65rem",
-                                            color: colors.accent,
-                                            fontFamily: "var(--font-mono)",
-                                            cursor: "pointer",
-                                        }}>
+                                        <button
+                                            onClick={handleMarkAllRead}
+                                            disabled={unreadCount === 0}
+                                            style={{
+                                                fontSize: "0.65rem",
+                                                color: unreadCount === 0 ? colors.textMuted : colors.accent,
+                                                fontFamily: "var(--font-mono)",
+                                                cursor: unreadCount === 0 ? "default" : "pointer",
+                                                background: "none",
+                                                border: "none",
+                                                padding: 0,
+                                            }}
+                                        >
                                             Mark all read
-                                        </span>
+                                        </button>
                                     </div>
 
-                                    {/* Sample notifications */}
-                                    {[
-                                        { icon: "🔴", text: "Critical threat detected in recent scan", time: "2m ago", color: colors.red },
-                                        { icon: "⚠️", text: "New phishing campaign targeting Indian banks", time: "15m ago", color: colors.amber },
-                                        { icon: "📡", text: "OSINT engine updated: 3 new sources", time: "1h ago", color: colors.accent },
-                                    ].map((n, i) => (
-                                        <motion.div
-                                            key={i}
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: i * 0.05 }}
-                                            style={{
-                                                padding: "10px 16px",
-                                                borderBottom: i < 2 ? `1px solid ${colors.border}` : "none",
-                                                display: "flex",
-                                                gap: 10,
-                                                cursor: "pointer",
-                                                transition: "background 0.15s ease",
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = colors.accentSoft}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                                        >
-                                            <span style={{ fontSize: "0.9rem", flexShrink: 0, marginTop: 1 }}>{n.icon}</span>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{
-                                                    fontSize: "0.78rem",
-                                                    color: colors.text,
-                                                    lineHeight: 1.4,
-                                                    fontFamily: "var(--font-body)",
-                                                }}>
-                                                    {n.text}
-                                                </div>
-                                                <div style={{
-                                                    fontSize: "0.65rem",
-                                                    color: colors.textMuted,
-                                                    marginTop: 3,
-                                                    fontFamily: "var(--font-mono)",
-                                                }}>
-                                                    {n.time}
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    ))}
+                                    {allNotifs.length === 0 ? (
+                                        <div style={{
+                                            padding: "28px 16px",
+                                            textAlign: "center",
+                                            fontFamily: "var(--font-mono)",
+                                            fontSize: "0.74rem",
+                                            color: colors.textDim,
+                                        }}>
+                                            No alerts right now — nothing critical in your scans, and the live feed is quiet.
+                                        </div>
+                                    ) : (
+                                        allNotifs.map((n, i) => {
+                                            const color = colors[n.colorKey] ?? colors.accent;
+                                            const isUnread = !lastRead || new Date(n.timestamp) > new Date(lastRead);
+                                            return (
+                                                <motion.div
+                                                    key={n.id}
+                                                    initial={{ opacity: 0, x: -10 }}
+                                                    animate={{ opacity: 1, x: 0 }}
+                                                    transition={{ delay: i * 0.05 }}
+                                                    onClick={() => { setNotifOpen(false); onNavigate?.(n.linkPath); }}
+                                                    style={{
+                                                        padding: "10px 16px",
+                                                        borderBottom: i < allNotifs.length - 1 ? `1px solid ${colors.border}` : "none",
+                                                        display: "flex",
+                                                        gap: 10,
+                                                        cursor: "pointer",
+                                                        background: isUnread ? `${color}08` : "transparent",
+                                                        transition: "background 0.15s ease",
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = colors.accentSoft}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = isUnread ? `${color}08` : "transparent"}
+                                                >
+                                                    <span style={{ fontSize: "0.9rem", flexShrink: 0, marginTop: 1 }}>{n.icon}</span>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{
+                                                            fontSize: "0.78rem",
+                                                            color: colors.text,
+                                                            lineHeight: 1.4,
+                                                            fontFamily: "var(--font-body)",
+                                                        }}>
+                                                            {n.text}
+                                                        </div>
+                                                        <div style={{
+                                                            fontSize: "0.65rem",
+                                                            color: colors.textMuted,
+                                                            marginTop: 3,
+                                                            fontFamily: "var(--font-mono)",
+                                                            display: "flex",
+                                                            gap: 6,
+                                                        }}>
+                                                            <span>{timeAgo(n.timestamp)}</span>
+                                                            <span style={{ color: colors.textDim }}>·</span>
+                                                            <span>{n.source}</span>
+                                                        </div>
+                                                    </div>
+                                                </motion.div>
+                                            );
+                                        })
+                                    )}
                                 </motion.div>
                             </>
                         )}

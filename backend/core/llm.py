@@ -27,7 +27,7 @@ When analyzing any input (message, URL, email, text), you MUST respond in this E
 
 VERDICT: [SAFE / SUSPICIOUS / DANGEROUS / CRITICAL]
 CONFIDENCE: [0-100]%
-ATTACK_TYPE: [type of attack or "None Detected"]
+ATTACK_TYPE: [A short human-readable category only — e.g. "Phishing / Credential Harvesting", "Malware Distribution", "Business Email Compromise", or "None Detected". This must be plain language, NEVER a MITRE technique ID like "T1566.002" — that code belongs only in the MITRE_ATTACK section further below, not here.]
 SEVERITY: [LOW / MEDIUM / HIGH / CRITICAL]
 
 EXPLANATION:

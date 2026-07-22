@@ -20,6 +20,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 import { useThreatFeed } from "../../hooks/useThreatFeed";
+import { useBackendHealth } from "../../hooks/useBackendHealth";
 import { timeAgo } from "../../utils/helpers";
 import LiveStatus from "./LiveStatus";
 import ThemeSwitcher from "./ThemeSwitcher";
@@ -80,24 +81,45 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
     const { setCursor, resetCursor } = useCursor();
     const [notifOpen, setNotifOpen] = useState(false);
     const [scanNotifs, setScanNotifs] = useState(() => getScanNotifications());
+    const [scanErrors, setScanErrors] = useState([]); // transient, in-memory — cleared on reload
     const [lastRead, setLastRead] = useState(() => getLastReadTime());
+
+    // Shared with Sidebar via one underlying poller, not a separate one here.
+    const { alive: backendAlive, lastChecked: backendCheckedAt } = useBackendHealth();
 
     // Real global threats — same live feed used elsewhere in the app.
     // Longer interval here (60s) since a notification bell doesn't need
     // the same real-time granularity as the dedicated feed pages.
-    const { feed } = useThreatFeed({ maxItems: 5, intervalMs: 60_000, pauseOnBlur: true });
+    const { feed, error: feedError, isConnected: feedConnected } = useThreatFeed({ maxItems: 5, intervalMs: 60_000, pauseOnBlur: true });
 
-    // Poll your own scan history every 5s — cheap (just localStorage read +
-    // filter on a small array) and means a critical/dangerous verdict from
-    // a scan you just ran surfaces on the bell within seconds, even on a
-    // completely different page, instead of waiting for you to open the
-    // dropdown to notice it existed.
+    // Instant, event-driven — no polling. useAnalysis() dispatches these
+    // the moment a scan actually completes (critical/dangerous verdict) or
+    // fails, anywhere in the app, on any page. This replaces the earlier
+    // 5-second localStorage poll entirely.
     useEffect(() => {
-        setScanNotifs(getScanNotifications());
-        const interval = setInterval(() => {
+        function onThreatDetected() {
             setScanNotifs(getScanNotifications());
-        }, 5000);
-        return () => clearInterval(interval);
+        }
+        function onScanError(e) {
+            setScanErrors((prev) => [
+                {
+                    id: `error-${e.detail.timestamp}`,
+                    icon: "🔌",
+                    text: `Scan failed: ${e.detail.message}`,
+                    timestamp: e.detail.timestamp,
+                    colorKey: "red",
+                    source: "Scan error",
+                    linkPath: null,
+                },
+                ...prev,
+            ].slice(0, 3));
+        }
+        window.addEventListener("sentinel:threat-detected", onThreatDetected);
+        window.addEventListener("sentinel:scan-error", onScanError);
+        return () => {
+            window.removeEventListener("sentinel:threat-detected", onThreatDetected);
+            window.removeEventListener("sentinel:scan-error", onScanError);
+        };
     }, []);
 
     const globalNotifs = useMemo(
@@ -114,11 +136,41 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
         [feed]
     );
 
+    // Real system-status alerts — backend down, or the live feed itself
+    // unreachable. Timestamped to when we actually last checked, not
+    // fabricated.
+    const systemNotifs = useMemo(() => {
+        const items = [];
+        if (backendAlive === false && backendCheckedAt) {
+            items.push({
+                id: "system-backend",
+                icon: "🔌",
+                text: "Backend engine is offline — scans and live data won't work until it's back",
+                timestamp: new Date(backendCheckedAt).toISOString(),
+                colorKey: "red",
+                source: "System status",
+                linkPath: null,
+            });
+        }
+        if (!feedConnected && feedError) {
+            items.push({
+                id: "system-feed",
+                icon: "📡",
+                text: `Live threat feed unreachable: ${feedError}`,
+                timestamp: new Date().toISOString(),
+                colorKey: "amber",
+                source: "System status",
+                linkPath: "/intelligence",
+            });
+        }
+        return items;
+    }, [backendAlive, backendCheckedAt, feedConnected, feedError]);
+
     const allNotifs = useMemo(() => {
-        return [...scanNotifs, ...globalNotifs]
+        return [...scanErrors, ...systemNotifs, ...scanNotifs, ...globalNotifs]
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-            .slice(0, 5);
-    }, [scanNotifs, globalNotifs]);
+            .slice(0, 6);
+    }, [scanErrors, systemNotifs, scanNotifs, globalNotifs]);
 
     const unreadCount = useMemo(() => {
         if (!lastRead) return allNotifs.length;

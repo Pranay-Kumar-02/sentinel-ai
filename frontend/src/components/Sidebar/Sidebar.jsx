@@ -4,12 +4,12 @@
 // keyboard shortcut (Ctrl+B), and spring animation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useSidebarState } from "../../hooks/useLocalStorage";
 import { useKeyboard } from "../../hooks/useKeyboard";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+import { useBackendHealth } from "../../hooks/useBackendHealth";
 import SidebarLogo from "./SidebarLogo";
 import NavItem from "./NavItem";
 
@@ -121,25 +121,12 @@ export default function Sidebar({ activePath = "/", onNavigate }) {
     const { colors, nav } = useTheme();
     const { setCursor, resetCursor } = useCursor();
     const [isOpen, toggleOpen] = useSidebarState();
-    const [backendAlive, setBackendAlive] = useState(null);
+    // Shared with TopBar via one underlying poller instead of each
+    // component running its own independent /health check.
+    const { alive: backendAlive } = useBackendHealth();
 
     // Ctrl+B toggles sidebar
     useKeyboard({ "ctrl+b": () => toggleOpen() });
-
-    // Check backend health on mount
-    useEffect(() => {
-        async function check() {
-            try {
-                const res = await fetch("http://127.0.0.1:8000/health", { signal: AbortSignal.timeout(3000) });
-                setBackendAlive(res.ok);
-            } catch {
-                setBackendAlive(false);
-            }
-        }
-        check();
-        const interval = setInterval(check, 30_000);
-        return () => clearInterval(interval);
-    }, []);
 
     const groups = ["main", "intel", "system"];
 

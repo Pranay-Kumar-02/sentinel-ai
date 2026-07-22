@@ -275,6 +275,21 @@ export function useAnalysis() {
                     riskScore: data?.risk_score ?? 0,
                 });
 
+                // Instant real-time signal for the notification bell — fires
+                // the moment a critical/dangerous verdict actually happens,
+                // instead of TopBar having to poll localStorage to discover
+                // it happened. TopBar (or anything else) can listen for this.
+                const v = verdict.toUpperCase();
+                if (v === "CRITICAL" || v === "DANGEROUS") {
+                    window.dispatchEvent(new CustomEvent("sentinel:threat-detected", {
+                        detail: {
+                            verdict: v,
+                            scanType: type,
+                            timestamp: new Date().toISOString(),
+                        },
+                    }));
+                }
+
             } catch (err) {
                 if (err.name === "AbortError") return; // cancelled — silent
 
@@ -284,6 +299,14 @@ export function useAnalysis() {
                 setError(msg);
                 setState(ANALYSIS_STATE.ERROR);
                 setProgress(0);
+
+                // Instant real-time signal for a genuine scan failure —
+                // distinct from a threat being found: this means the scan
+                // itself couldn't complete (backend down, network error,
+                // bad response), which the user should know about too.
+                window.dispatchEvent(new CustomEvent("sentinel:scan-error", {
+                    detail: { message: msg, scanType: type, timestamp: new Date().toISOString() },
+                }));
             }
         },
         [scheduleLogs, clearLogTimers, addLog, addScan]

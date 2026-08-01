@@ -1,4 +1,5 @@
-# Sentinel AI
+# Sentinel AIx
+
 
 **India's first open-source, AI-native Cyber Threat Intelligence platform.**
 

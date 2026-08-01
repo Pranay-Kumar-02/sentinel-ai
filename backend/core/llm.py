@@ -6,14 +6,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-# Switched from "openrouter/auto" (routes across PAID models, which is what
-# caused the 402 "requires more credits" errors) to "openrouter/free" —
-# OpenRouter's own free-model auto-router. It only routes to models with a
-# genuine $0 price, so this works with a zero or negative account balance.
-# Rate limits apply (20 req/min, 50 req/day without any credits ever
-# purchased, 1000/day if you ever add just $10) — fine for development and
-# demoing, worth revisiting if this ever needs to handle heavy real traffic.
 MODEL = "openrouter/free"
+# One-time retry target if the free-router selects a model that can't
+# actually perform open-ended structured analysis (see analyze_with_llm
+# below). Verified separately as the most stable, longest-running
+# general-purpose free model available via OpenRouter — well-suited to
+# long structured instructions, unlike specialized classifiers.
+FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
 SYSTEM_PROMPT = """You are Sentinel AI — an elite cybersecurity threat analyst with expertise in:
 - Phishing and social engineering detection
@@ -58,17 +57,59 @@ Always be thorough. Never say "I cannot analyze this." Always give your best ass
 
 
 async def analyze_with_llm(user_input: str) -> dict:
-    """Send input to LLM and get threat analysis back."""
-    
+    """
+    Send input to LLM and get threat analysis back.
+
+    Some models in the free-tier pool are specialized (content-safety
+    classifiers, code-completion models, etc.) and are architecturally
+    incapable of producing this kind of open-ended structured analysis at
+    all — not just formatted slightly differently, but genuinely didn't
+    attempt the task. One observed real example: a request routed to a
+    content-safety classifier returned only "User Safety: safe" as its
+    entire response. That's a much more serious failure than a formatting
+    mismatch — it can silently produce a confident-looking but meaningless
+    "SAFE, 0% confidence" verdict for what might be a real threat.
+
+    This detects that specific failure shape (empty explanation + zero
+    confidence — the real signature of "didn't attempt the task," not just
+    "phrased it differently") and retries once against a pinned,
+    known-reliable general-purpose model instead of silently trusting
+    a non-answer.
+    """
+    result = await _call_llm(user_input, MODEL)
+
+    task_failed = not result["explanation"].strip() and result["confidence"] == 0
+    if not task_failed:
+        return result
+
+    retry = await _call_llm(user_input, FALLBACK_MODEL)
+    retry_failed = not retry["explanation"].strip() and retry["confidence"] == 0
+    if not retry_failed:
+        return retry
+
+    # Both the free-router's pick AND the pinned fallback genuinely failed
+    # to produce a real analysis. Be honest about that instead of letting a
+    # meaningless result masquerade as a confident "SAFE" verdict.
+    retry["verdict"] = "UNKNOWN"
+    retry["parsing_note"] = (
+        "Both the primary and fallback models failed to produce a "
+        "structured analysis for this input. This result should not be "
+        "trusted as a real assessment — please retry the scan."
+    )
+    return retry
+
+
+async def _call_llm(user_input: str, model: str) -> dict:
+    """Make one actual request to OpenRouter with the given model."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://sentinel-ai.app",
         "X-Title": "Sentinel AI"
     }
-    
+
     payload = {
-        "model": MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Analyze this for threats:\n\n{user_input}"}
@@ -76,26 +117,20 @@ async def analyze_with_llm(user_input: str) -> dict:
         "temperature": 0.1,  # Low temperature = more consistent, factual responses
         "max_tokens": 1500
     }
-    
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=payload
         )
-        
+
         if response.status_code != 200:
             raise Exception(f"LLM API error: {response.status_code} - {response.text}")
-        
+
         data = response.json()
         raw_response = data["choices"][0]["message"]["content"]
-
-        # openrouter/auto routes each request to a different underlying model
-        # (Claude, GPT-5, Gemini, etc. — OpenRouter's own docs note "Auto"
-        # behavior can be unpredictable for production). Capturing which
-        # model actually answered makes inconsistent-looking results
-        # explainable/debuggable instead of mysterious.
-        model_used = data.get("model", MODEL)
+        model_used = data.get("model", model)
 
         result = parse_llm_response(raw_response)
         result["model_used"] = model_used

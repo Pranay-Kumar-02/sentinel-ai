@@ -1,0 +1,24 @@
+# Never bake real secrets into the image — Render injects env vars
+# (URLHAUS_AUTH_KEY, etc.) at runtime via its dashboard instead.
+.env
+.env.*
+
+# Local virtual environment — irrelevant inside the container, which
+# installs fresh via requirements.txt
+venv/
+.venv/
+
+# Python cache/build artifacts
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Version control
+.git/
+.gitignore
+
+# Editor/OS junk
+.vscode/
+.idea/
+.DS_Store

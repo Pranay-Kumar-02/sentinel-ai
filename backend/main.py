@@ -6,9 +6,10 @@ from engines.osint import run_osint
 from engines.forensics import run_forensics
 from engines.email_forensics import analyze_email_headers
 from engines.threat_feed import fetch_recent_threats
+import os
 import uvicorn
 
-# ── App Setup ─────────────────────────────────────────────────────────────────
+# ── App Setup ─────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Sentinel AI",
     description="Enterprise Cyber Threat Intelligence Platform",
@@ -22,16 +23,32 @@ from routers.cve import router as cve_router
 app.include_router(cve_router)
 from routers.qr import router as qr_router
 app.include_router(qr_router)
-# ── CORS ──────────────────────────────────────────────────────────────────────
+# ── CORS ──────────────────────────────────────────────────────────────────
+# FIX: allow_origins=["*"] combined with allow_credentials=True is invalid
+# per the CORS spec — browsers reject a wildcard origin when credentials
+# are involved. It wasn't visibly breaking anything only because the
+# frontend doesn't currently send credentials — but it's a landmine for
+# the first time auth/cookies get added, and "*" also means literally any
+# website on the internet can call this API from a visitor's browser, not
+# just your own frontend.
+#
+# ALLOWED_ORIGINS is a comma-separated env var — set it on Render once you
+# know your real deployed frontend URL (e.g.
+# "https://sentinel-ai.onrender.com"). Local Vite dev origins are included
+# by default so local development keeps working without any setup.
+_default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_extra_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+ALLOWED_ORIGINS = _default_origins + _extra_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Verdict severity ranking ──────────────────────────────────────────────────
+# ── Verdict severity ranking ────────────────────────────────────────────
 # Single source of truth for verdict escalation. Previously /fullscan and
 # /forensics/upload each had their own hand-rolled if/elif chain that only
 # escalated in narrow cases — e.g. a SUSPICIOUS OSINT result only upgraded
@@ -56,7 +73,7 @@ def escalate_verdict(current: str, candidates) -> str:
             best = v
     return best
 
-# ── Request Models ────────────────────────────────────────────────────────────
+# ── Request Models ────────────────────────────────────────────────────────
 
 class AnalysisRequest(BaseModel):
     text: str
@@ -74,7 +91,7 @@ class FullScanRequest(BaseModel):
 class EmailRequest(BaseModel):
     raw_email: str
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ── Routes ────────────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
     return {
@@ -345,6 +362,6 @@ async def threat_feed_live(limit: int = 30):
     except Exception as e:
         raise HTTPException(500, f"Threat feed fetch failed: {str(e)}")
 
-# ── Run ───────────────────────────────────────────────────────────────────────
+# ── Run ───────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

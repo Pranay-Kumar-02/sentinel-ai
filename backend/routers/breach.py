@@ -87,7 +87,13 @@ async def check_breach(email: str = Query(..., description="Email address to che
             )
 
         xon_data     = xon_res.json()
-        breach_names = xon_data.get("breaches", []) or []
+        raw_breaches = xon_data.get("breaches", []) or []
+        breach_names = []
+        for item in raw_breaches:
+            if isinstance(item, list):
+                breach_names.extend(str(b) for b in item if b)
+            elif item:
+                breach_names.append(str(item))
 
         if not breach_names:
             return JSONResponse(content={
@@ -169,3 +175,5 @@ async def get_breach_detail(name: str):
             return res.json()
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="Request timed out.")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"Network error contacting breach service: {str(e)}")

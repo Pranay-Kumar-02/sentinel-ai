@@ -7,6 +7,7 @@ from engines.forensics import run_forensics
 from engines.email_forensics import analyze_email_headers
 from engines.threat_feed import fetch_recent_threats
 import os
+import asyncio
 import uvicorn
 
 # ── App Setup ─────────────────────────────────────────────────────────────
@@ -36,7 +37,10 @@ app.include_router(qr_router)
 # know your real deployed frontend URL (e.g.
 # "https://sentinel-ai.onrender.com"). Local Vite dev origins are included
 # by default so local development keeps working without any setup.
-_default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_default_origins = [
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://localhost:5174", "http://127.0.0.1:5174",
+]
 _extra_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 ALLOWED_ORIGINS = _default_origins + _extra_origins
 
@@ -234,12 +238,17 @@ Extracted Content:
 """
         llm_result = await full_analysis(analysis_input)
 
-        # Step 3 — OSINT on extracted URLs
+        # Step 3 — OSINT on extracted URLs (parallel execution)
         osint_results = []
         all_urls = forensics_result.get("extracted_urls", [])
-        for url in all_urls[:3]:
-            osint_data = await run_osint(url)
-            osint_results.append(osint_data)
+        if all_urls:
+            raw_osints = await asyncio.gather(
+                *[run_osint(u) for u in all_urls[:3]],
+                return_exceptions=True
+            )
+            for item in raw_osints:
+                if isinstance(item, dict):
+                    osint_results.append(item)
 
         # Step 4 — Master verdict
         master_verdict = llm_result.get("summary", {}).get("verdict", "UNKNOWN")
@@ -305,14 +314,17 @@ Analyze this email for threats, phishing, BEC, spoofing, or malicious intent.
 """
         llm_result = await full_analysis(analysis_input)
 
-        # Step 3 — OSINT on body URLs
+        # Step 3 — OSINT on body URLs (parallel execution)
         osint_results = []
-        for url in email_result.get("body_urls", [])[:2]:
-            try:
-                osint_data = await run_osint(url)
-                osint_results.append(osint_data)
-            except:
-                pass
+        body_urls = email_result.get("body_urls", [])[:2]
+        if body_urls:
+            raw_osints = await asyncio.gather(
+                *[run_osint(u) for u in body_urls],
+                return_exceptions=True
+            )
+            for item in raw_osints:
+                if isinstance(item, dict):
+                    osint_results.append(item)
 
         # Step 4 — Final master verdict
         # Use highest severity between email forensics and LLM

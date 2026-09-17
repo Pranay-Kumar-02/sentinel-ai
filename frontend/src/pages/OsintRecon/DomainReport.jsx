@@ -69,7 +69,28 @@ export default function DomainReport({ result, query }) {
                             ))}
                         </div>
                     )}
+
+                    {result.checks_unavailable?.length > 0 && (
+                        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: "0.68rem", color: colors.textMuted, fontFamily: "var(--font-mono)" }}>
+                                Unavailable Signals:
+                            </span>
+                            {result.checks_unavailable.map((flag, i) => (
+                                <Badge key={i} variant="muted" size="xs">⚪ {flag}</Badge>
+                            ))}
+                        </div>
+                    )}
                 </div>
+
+                {/* Confidence ring */}
+                {result.confidence !== undefined && (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                        <ConfidenceRing confidence={result.confidence} size={92} thickness={8} />
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.65rem", color: colors.textMuted }}>
+                            Signal Confidence
+                        </span>
+                    </div>
+                )}
 
                 {/* Risk score gauge */}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>

@@ -49,9 +49,9 @@ URLHAUS_RECENT_URL = "https://urlhaus-api.abuse.ch/v1/urls/recent/"
 # abuse.ch fair-use policy: do not poll more often than every 5 minutes
 CACHE_TTL_SECONDS = 5 * 60
 
-# Always fetch this many from URLhaus internally, regardless of what any one
-# caller asks for — every component then slices from the same full cache.
-FETCH_LIMIT = 60
+# Always fetch this many from URLhaus internally — 25 stays within ip-api's
+# 40/min rate limit on cold start, responding in ~1s instead of delaying 90s.
+FETCH_LIMIT = 25
 
 _cache = {
     "items": [],

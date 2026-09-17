@@ -11,8 +11,7 @@ MODEL = "openrouter/free"
 # actually perform open-ended structured analysis (see analyze_with_llm
 # below). Verified separately as the most stable, longest-running
 # general-purpose free model available via OpenRouter — well-suited to
-# long structured instructions, unlike specialized classifiers.
-FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+FALLBACK_MODEL = "nvidia/nemotron-3.5-lightning:free"
 
 SYSTEM_PROMPT = """You are Sentinel AI — an elite cybersecurity threat analyst with expertise in:
 - Phishing and social engineering detection
@@ -76,25 +75,41 @@ async def analyze_with_llm(user_input: str) -> dict:
     known-reliable general-purpose model instead of silently trusting
     a non-answer.
     """
-    result = await _call_llm(user_input, MODEL)
+    result = None
+    task_failed = True
+    try:
+        result = await _call_llm(user_input, MODEL)
+        task_failed = not result.get("explanation", "").strip() and result.get("confidence", 0) == 0
+    except Exception:
+        task_failed = True
 
-    task_failed = not result["explanation"].strip() and result["confidence"] == 0
-    if not task_failed:
+    if not task_failed and result:
         return result
 
-    retry = await _call_llm(user_input, FALLBACK_MODEL)
-    retry_failed = not retry["explanation"].strip() and retry["confidence"] == 0
-    if not retry_failed:
-        return retry
+    try:
+        retry = await _call_llm(user_input, FALLBACK_MODEL)
+        retry_failed = not retry.get("explanation", "").strip() and retry.get("confidence", 0) == 0
+        if not retry_failed:
+            return retry
+    except Exception as e:
+        retry = {
+            "verdict": "UNKNOWN",
+            "confidence": 0,
+            "attack_type": "Unknown",
+            "severity": "UNKNOWN",
+            "explanation": f"LLM inference temporarily unavailable: {str(e)}",
+            "technical_analysis": "",
+            "mitre_attack": "None",
+            "indicators": [],
+            "recommended_actions": ["Retry analysis later"],
+            "educational_note": "",
+            "model_used": "offline-fallback"
+        }
 
-    # Both the free-router's pick AND the pinned fallback genuinely failed
-    # to produce a real analysis. Be honest about that instead of letting a
-    # meaningless result masquerade as a confident "SAFE" verdict.
     retry["verdict"] = "UNKNOWN"
     retry["parsing_note"] = (
-        "Both the primary and fallback models failed to produce a "
-        "structured analysis for this input. This result should not be "
-        "trusted as a real assessment — please retry the scan."
+        "Both the primary and fallback models were unavailable or failed to produce a "
+        "structured analysis for this input. Please retry the scan."
     )
     return retry
 

@@ -20,9 +20,12 @@ export default function AIReasoning({ result, autoType = true, speed = 12 }) {
     if (!result) return null;
 
     const llm = result.llm_analysis ?? result;
-    const explanation = llm.explanation ?? llm.reasoning ?? "";
-    const attackType = llm.attack_type ?? null;
-    const indicators = llm.key_indicators ?? llm.red_flags ?? [];
+    const aiData = llm.ai_analysis ?? llm;
+    const explanation = aiData.explanation ?? aiData.reasoning ?? llm.explanation ?? "";
+    const attackType = aiData.attack_type ?? llm.summary?.attack_type ?? llm.attack_type ?? null;
+    const indicators = aiData.key_indicators ?? aiData.red_flags ?? llm.key_indicators ?? [];
+    const modelUsed = aiData.model_used ?? llm.model_used ?? null;
+    const parsingNote = aiData.parsing_note ?? llm.parsing_note ?? null;
 
     // Typewriter effect
     useEffect(() => {
@@ -102,24 +105,66 @@ export default function AIReasoning({ result, autoType = true, speed = 12 }) {
                 >
                     🤖
                 </motion.div>
-                <div>
-                    <div style={{
-                        fontFamily: "var(--font-display)",
-                        fontSize: "0.88rem",
-                        fontWeight: 700,
-                        color: colors.text,
-                    }}>
-                        Sentinel AI Analysis
+                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                        <div style={{
+                            fontFamily: "var(--font-display)",
+                            fontSize: "0.88rem",
+                            fontWeight: 700,
+                            color: colors.text,
+                        }}>
+                            Sentinel AI Analysis
+                        </div>
+                        <div style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "0.65rem",
+                            color: isTyping ? colors.purple : colors.textMuted,
+                        }}>
+                            {isTyping ? "Generating reasoning..." : "Analysis complete"}
+                        </div>
                     </div>
-                    <div style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "0.65rem",
-                        color: isTyping ? colors.purple : colors.textMuted,
-                    }}>
-                        {isTyping ? "Generating reasoning..." : "Analysis complete"}
-                    </div>
+                    {modelUsed && (
+                        <span
+                            title={`AI Model: ${modelUsed}`}
+                            style={{
+                                fontSize: "0.62rem",
+                                color: colors.textMuted,
+                                fontFamily: "var(--font-mono)",
+                                background: colors.bgSurface,
+                                padding: "2px 8px",
+                                borderRadius: 4,
+                                border: `1px solid ${colors.border}`,
+                                maxWidth: 180,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                            }}
+                        >
+                            {modelUsed}
+                        </span>
+                    )}
                 </div>
             </div>
+
+            {/* Parsing note / warning if model output had formatting issues */}
+            {parsingNote && (
+                <div style={{
+                    marginBottom: 14,
+                    padding: "10px 14px",
+                    background: colors.amberSoft,
+                    border: `1px solid ${colors.amber}40`,
+                    borderRadius: 8,
+                    fontSize: "0.78rem",
+                    color: colors.amber,
+                    fontFamily: "var(--font-body)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                }}>
+                    <span>⚠️</span>
+                    <span>{parsingNote}</span>
+                </div>
+            )}
 
             {/* Explanation text with typewriter */}
             <div style={{

@@ -7,8 +7,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
+import { BASE_URL } from "../../utils/api";
 
-const BACKEND = "http://127.0.0.1:8000";
+const BACKEND = BASE_URL;
 
 // ── Suggested prompts based on context ───────────────────────────────────────
 const SUGGESTIONS = [
@@ -212,7 +213,7 @@ Be concise, clear, and actionable. Use simple language unless the user seems tec
             return "Email authentication works in 3 layers:\n• **SPF** — verifies the sending server is authorized\n• **DKIM** — cryptographic signature proving the email wasn't modified\n• **DMARC** — policy telling receivers what to do when SPF/DKIM fail\nIf all 3 fail, the email is almost certainly spoofed.";
         if (q.includes("safe") || q.includes("clicked"))
             return "If you clicked a suspicious link:\n1. Don't enter any credentials on the page\n2. Close the browser tab immediately\n3. Run a scan on the URL using Sentinel's Threat Scanner\n4. Change passwords for any accounts you may have accessed\n5. Check for unusual activity in your accounts";
-        return "I'm currently in offline mode — my backend isn't connected. Start your FastAPI backend at localhost:8000 for full AI responses.\n\nIn the meantime, I can answer basic cybersecurity questions from my local knowledge base. What would you like to know?";
+        return "I'm currently in offline mode — my backend isn't connected. Please verify your backend connection for full AI responses.\n\nIn the meantime, I can answer basic cybersecurity questions from my local knowledge base. What would you like to know?";
     }
 
     function handleKeyDown(e) {

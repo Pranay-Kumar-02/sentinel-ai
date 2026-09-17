@@ -43,10 +43,22 @@ export default function EmailAnalyzer() {
         setRawEmail(SAMPLE_HEADER);
     }
 
-    const emailData = result?.email_analysis ?? result ?? {};
+    const emailData = result?.email_forensics ?? result?.email_analysis ?? result ?? {};
     const hops = emailData.hop_chain ?? emailData.hops ?? [];
     const auth = emailData.authentication ?? emailData.auth ?? {};
-    const spoofing = emailData.spoofing ?? {};
+    
+    // Map display_name_analysis + headers to spoofing structure expected by SpoofDetector
+    const spoofAnalysis = emailData.display_name_analysis ?? {};
+    const issues = spoofAnalysis.issues ?? [];
+    const spoofing = {
+        display_name: spoofAnalysis.display_name,
+        from_address: spoofAnalysis.email_address ?? emailData.parsed_headers?.from,
+        reply_to_address: emailData.parsed_headers?.reply_to,
+        display_name_spoofing: issues.some((i) => i.type === "DISPLAY_NAME_SPOOF") || Boolean(emailData.spoofing?.display_name_spoofing),
+        reply_to_mismatch: issues.some((i) => i.type === "REPLY_TO_MISMATCH") || Boolean(emailData.spoofing?.reply_to_mismatch),
+        is_bec: (emailData.risk_flags ?? []).some((f) => /BEC|compromise|wire|financial/i.test(f)) || Boolean(emailData.spoofing?.is_bec),
+        ...emailData.spoofing,
+    };
 
     return (
         <motion.div

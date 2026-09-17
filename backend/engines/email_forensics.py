@@ -1,10 +1,16 @@
 import re
 import socket
+import asyncio
 import httpx
 import dns.resolver
 from datetime import datetime
 from email import message_from_string
 from email.header import decode_header
+
+# Configured resolver with bounded timeout to prevent hanging on dead/phishing domains
+_dns_resolver = dns.resolver.Resolver()
+_dns_resolver.lifetime = 2.0
+_dns_resolver.timeout = 2.0
 
 # ── HELPERS ────────────────────────────────────────────────────────────────────
 def decode_mime_header(value: str) -> str:
@@ -44,7 +50,7 @@ def extract_urls_from_body(body: str) -> list:
 async def check_spf(domain: str, sender_ip: str) -> dict:
     """Check SPF record for domain."""
     try:
-        answers = dns.resolver.resolve(domain, 'TXT')
+        answers = _dns_resolver.resolve(domain, 'TXT')
         spf_records = []
         for rdata in answers:
             txt = rdata.to_text().strip('"')
@@ -92,11 +98,12 @@ async def check_spf(domain: str, sender_ip: str) -> dict:
 async def check_dkim(domain: str, selector: str = "default") -> dict:
     """Check DKIM record for domain."""
     try:
-        selectors = [selector, "google", "mail", "dkim", "smtp", "k1", "s1", "s2"]
+        selectors = [selector] if selector not in ["default", "google"] else []
+        selectors.extend(["default", "google", "mail"])
         for sel in selectors:
             try:
                 dkim_domain = f"{sel}._domainkey.{domain}"
-                answers = dns.resolver.resolve(dkim_domain, 'TXT')
+                answers = _dns_resolver.resolve(dkim_domain, 'TXT')
                 for rdata in answers:
                     txt = rdata.to_text().strip('"')
                     if "v=DKIM1" in txt or "p=" in txt:
@@ -131,7 +138,7 @@ async def check_dmarc(domain: str) -> dict:
     """Check DMARC record for domain."""
     try:
         dmarc_domain = f"_dmarc.{domain}"
-        answers = dns.resolver.resolve(dmarc_domain, 'TXT')
+        answers = _dns_resolver.resolve(dmarc_domain, 'TXT')
         for rdata in answers:
             txt = rdata.to_text().strip('"')
             if txt.startswith('v=DMARC1'):
@@ -343,10 +350,16 @@ async def analyze_email_headers(raw_email: str) -> dict:
         orig_ip  = x_originating or (hop_chain[0]["ip"] if hop_chain else None)
         geo_data = await geolocate_ip(orig_ip) if orig_ip else {}
 
-        # DNS checks on sender domain
-        spf_check   = await check_spf(sender_domain, orig_ip or "") if sender_domain else {}
-        dkim_check  = await check_dkim(sender_domain) if sender_domain else {}
-        dmarc_check = await check_dmarc(sender_domain) if sender_domain else {}
+        # DNS checks on sender domain (concurrent execution)
+        if sender_domain:
+            spf_check, dkim_check, dmarc_check = await asyncio.gather(
+                check_spf(sender_domain, orig_ip or ""),
+                check_dkim(sender_domain),
+                check_dmarc(sender_domain),
+                return_exceptions=False
+            )
+        else:
+            spf_check, dkim_check, dmarc_check = {}, {}, {}
 
         # Display name spoof check
         spoof_check = check_display_name_spoof(from_header, reply_to)

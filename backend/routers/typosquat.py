@@ -154,10 +154,9 @@ def generate_permutations(name: str, original_tld: str) -> list[str]:
 def dns_resolve(domain: str) -> bool:
     """Check if domain resolves via DNS. Returns True if registered."""
     try:
-        socket.setdefaulttimeout(3)
         socket.gethostbyname(domain)
         return True
-    except (socket.gaierror, socket.timeout):
+    except (socket.gaierror, socket.herror, socket.timeout, OSError):
         return False
 
 

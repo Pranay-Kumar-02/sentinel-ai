@@ -134,7 +134,7 @@ export default function InvestigationReport({
                         maxWidth: 340,
                         lineHeight: 1.6,
                     }}>
-                        {error ?? "Something went wrong. Check if the backend is running at localhost:8000."}
+                        {error ?? "Something went wrong. Check if the backend is reachable."}
                     </div>
                 </div>
             </motion.div>

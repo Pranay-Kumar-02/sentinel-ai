@@ -14,7 +14,7 @@ import {
 import ThemeSwitcher from "../../components/TopBar/ThemeSwitcher";
 import { SectionHead } from "../../components/Common/Tooltip";
 import { Badge } from "../../components/Common/Badge";
-import { api } from "../../utils/api";
+import { api, BASE_URL } from "../../utils/api";
 
 function ToggleRow({ label, desc, value, onChange, colors }) {
     return (
@@ -252,7 +252,7 @@ export default function Settings() {
                             {backendStatus === null ? "Checking connection..." : backendStatus ? "Backend Connected" : "Backend Offline"}
                         </div>
                         <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: colors.textMuted }}>
-                            http://127.0.0.1:8000
+                            {BASE_URL}
                         </div>
                     </div>
                 </div>

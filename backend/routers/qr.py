@@ -26,22 +26,34 @@ VT_BASE    = "https://www.virustotal.com/api/v3"
 
 
 def decode_qr(image_bytes: bytes) -> list[str]:
-    """Decode QR code from image bytes. Returns list of decoded strings."""
+    """Decode QR code from image bytes using pyzbar or OpenCV QRCodeDetector fallback."""
+    # Method 1: pyzbar
     try:
         from pyzbar.pyzbar import decode
-        img  = Image.open(io.BytesIO(image_bytes))
-        # Convert to RGB if needed
+        img = Image.open(io.BytesIO(image_bytes))
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
         decoded = decode(img)
-        return [d.data.decode("utf-8", errors="replace") for d in decoded]
-    except ImportError:
-        raise HTTPException(
-            status_code=500,
-            detail="pyzbar not installed. Run: pip install pyzbar Pillow"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not decode image: {str(e)}")
+        if decoded:
+            return [d.data.decode("utf-8", errors="replace") for d in decoded]
+    except Exception:
+        pass
+
+    # Method 2: OpenCV QRCodeDetector (cross-platform, no native DLL dependency)
+    try:
+        import cv2
+        import numpy as np
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if cv_img is not None:
+            detector = cv2.QRCodeDetector()
+            data, _, _ = detector.detectAndDecode(cv_img)
+            if data:
+                return [data]
+    except Exception:
+        pass
+
+    return []
 
 
 async def scan_url_virustotal(url: str) -> dict:
@@ -117,7 +129,7 @@ async def scan_url_virustotal(url: str) -> dict:
 
 async def check_url_safe_browsing(url: str) -> dict:
     """Check URL against Google Safe Browsing API (free)."""
-    gsb_key = os.getenv("SAFE_BROWSING_API_KEY", "")
+    gsb_key = os.getenv("GOOGLE_SAFE_BROWSING_KEY") or os.getenv("SAFE_BROWSING_API_KEY", "")
     if not gsb_key:
         return {"available": False}
 

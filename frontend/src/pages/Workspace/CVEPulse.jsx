@@ -8,8 +8,9 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+import { BASE_URL } from "../../utils/api";
 
-const BACKEND = "http://127.0.0.1:8000";
+const BACKEND = BASE_URL;
 
 const SEVERITY_CONFIG = {
     CRITICAL: { color: "red", bg: "redSoft", icon: "💀", order: 0 },
@@ -327,11 +328,6 @@ export default function CVEPulse() {
     const [sevFilter, setSevFilter] = useState(null);
     const [loadingRecent, setLoadingRecent] = useState(false);
 
-    // Load recent critical CVEs on mount
-    useEffect(() => {
-        loadRecent();
-    }, []);
-
     async function loadRecent() {
         setLoadingRecent(true);
         try {
@@ -340,12 +336,17 @@ export default function CVEPulse() {
                 const data = await res.json();
                 setRecentCVEs(data);
             }
-        } catch (e) {
+        } catch {
             // silently fail — user can still search
         } finally {
             setLoadingRecent(false);
         }
     }
+
+    // Load recent critical CVEs on mount
+    useEffect(() => {
+        loadRecent();
+    }, []);
 
     async function handleSearch(kw) {
         const q = (kw ?? keyword).trim();

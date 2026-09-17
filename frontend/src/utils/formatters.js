@@ -128,9 +128,13 @@ export function formatRegistrar(registrar = "") {
 /** Format Safe Browsing result */
 export function formatSafeBrowsing(sb = null) {
     if (!sb) return "Not checked";
-    if (sb.is_safe) return "Clean";
+    if (sb.error) return "Unavailable";
+    if (sb.is_dangerous) {
+        const threats = Array.isArray(sb.threats) && sb.threats.length > 0 ? sb.threats.join(", ") : "Threat";
+        return `Flagged: ${threats}`;
+    }
     if (sb.flagged) return `Flagged: ${sb.threat_type ?? "Threat"}`;
-    if (sb.threat_type) return `${sb.threat_type}`;
+    if (sb.verdict === "CLEAN" || sb.is_safe || sb.is_dangerous === false) return "Clean";
     return "No threats found";
 }
 

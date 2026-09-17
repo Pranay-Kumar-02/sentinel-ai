@@ -260,8 +260,15 @@ export function useAnalysis() {
                 setProgress(100);
 
                 const verdict = data?.master_verdict ?? data?.verdict ?? data?.llm_analysis?.verdict ?? "UNKNOWN";
+                const confidence = data?.summary?.confidence
+                    ?? data?.llm_analysis?.summary?.confidence
+                    ?? data?.ai_analysis?.confidence
+                    ?? data?.llm_analysis?.ai_analysis?.confidence
+                    ?? data?.confidence
+                    ?? 0;
+
                 addLog(`Analysis complete — Verdict: ${verdict}`, "success");
-                addLog(`Confidence: ${data?.llm_analysis?.confidence ?? data?.confidence ?? "—"}%`, "data");
+                addLog(`Confidence: ${confidence}%`, "data");
 
                 setResult(data);
                 setState(ANALYSIS_STATE.SUCCESS);
@@ -271,8 +278,8 @@ export function useAnalysis() {
                     input: typeof inputData === "string" ? inputData.slice(0, 120) : inputData?.name,
                     scanType: type,
                     verdict,
-                    confidence: data?.llm_analysis?.confidence ?? data?.confidence ?? 0,
-                    riskScore: data?.risk_score ?? 0,
+                    confidence,
+                    riskScore: data?.risk_score ?? data?.summary?.risk_score ?? 0,
                 });
 
                 // Instant real-time signal for the notification bell — fires

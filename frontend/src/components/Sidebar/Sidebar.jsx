@@ -10,6 +10,7 @@ import { useSidebarState } from "../../hooks/useLocalStorage";
 import { useKeyboard } from "../../hooks/useKeyboard";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 import { useBackendHealth } from "../../hooks/useBackendHealth";
+import { BASE_URL } from "../../utils/api";
 import SidebarLogo from "./SidebarLogo";
 import NavItem from "./NavItem";
 
@@ -294,7 +295,7 @@ export default function Sidebar({ activePath = "/", onNavigate }) {
                                     color: colors.textMuted,
                                     fontFamily: "var(--font-mono)",
                                 }}>
-                                    localhost:8000
+                                    {BASE_URL.replace(/^https?:\/\//, "")}
                                 </div>
                             </div>
                         </motion.div>

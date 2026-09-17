@@ -8,8 +8,9 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+import { BASE_URL } from "../../utils/api";
 
-const BACKEND = "http://127.0.0.1:8000";
+const BACKEND = BASE_URL;
 
 const RISK_CONFIG = {
     CRITICAL: { color: "red", icon: "🚨", label: "Critical Risk", desc: "10+ lookalike domains registered — active impersonation risk" },

@@ -4,10 +4,11 @@
 // Its own dedicated module — not the homepage.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
-import { useAnalysis, SCAN_TYPES } from "../../hooks/useAnalysis";
-import { verdictToParticleMode, normalizeVerdict } from "../../utils/riskCalculator";
+import { useAnalysis } from "../../hooks/useAnalysis";
+import { normalizeVerdict } from "../../utils/riskCalculator";
 import ScanInput from "./ScanInput";
 import InvestigationReport from "./InvestigationReport";
 
@@ -15,7 +16,7 @@ export default function ThreatScanner({ onVerdictChange }) {
     const { colors } = useTheme();
     const {
         analyze, result, state, isLoading, scanType, setScanType,
-        logs, error, reset, cancelScan,
+        logs, error, cancelScan,
     } = useAnalysis();
 
     function handleSubmit(input, type) {
@@ -26,6 +27,12 @@ export default function ThreatScanner({ onVerdictChange }) {
     const verdict = result
         ? normalizeVerdict(result.master_verdict ?? result.verdict ?? result.llm_analysis?.verdict ?? "UNKNOWN")
         : null;
+
+    useEffect(() => {
+        if (verdict && onVerdictChange) {
+            onVerdictChange(verdict);
+        }
+    }, [verdict, onVerdictChange]);
 
     return (
         <motion.div

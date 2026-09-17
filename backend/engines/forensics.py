@@ -9,8 +9,13 @@ from PIL import Image
 import cv2
 import numpy as np
 
-# Set Tesseract path for Windows
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+import platform
+
+# Set Tesseract path for Windows if installed; on Linux/Docker, pytesseract finds 'tesseract' in PATH
+if platform.system() == "Windows":
+    windows_tesseract = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    if os.path.exists(windows_tesseract):
+        pytesseract.pytesseract.tesseract_cmd = windows_tesseract
 
 # ── URL Extraction Helper ──────────────────────────────────────────────────────
 def extract_urls_from_text(text: str) -> list:

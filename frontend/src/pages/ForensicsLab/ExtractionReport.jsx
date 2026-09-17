@@ -70,10 +70,18 @@ export default function ExtractionReport({ state, result, logs, error }) {
     }
 
     if (state === "success" && result) {
-        const extractedText = result.extracted_text ?? result.ocr_text ?? "";
-        const decodedUrl = result.decoded_url ?? result.qr_url ?? null;
-        const metadata = result.metadata ?? {};
-        const embeddedLinks = result.embedded_links ?? result.links ?? [];
+        const f = result.forensics ?? {};
+        const extractedText = f.extracted_text ?? result.extracted_text ?? result.ocr_text ?? "";
+        const decodedUrl = f.qr_data ?? f.decoded_url ?? result.decoded_url ?? result.qr_url ?? null;
+        const embeddedLinks = f.extracted_urls ?? f.embedded_links ?? result.embedded_links ?? result.links ?? [];
+
+        const metadata = { ...result.metadata };
+        if (f.filename) metadata.filename = f.filename;
+        if (f.file_type) metadata.file_type = f.file_type;
+        if (f.dimensions) metadata.dimensions = f.dimensions;
+        if (f.page_count !== undefined) metadata.page_count = f.page_count;
+        if (f.char_count !== undefined) metadata.char_count = f.char_count;
+        if (f.qr_type) metadata.qr_type = f.qr_type;
 
         return (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>

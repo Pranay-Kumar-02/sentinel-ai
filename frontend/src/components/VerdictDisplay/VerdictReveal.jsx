@@ -138,7 +138,10 @@ export default function VerdictReveal({ result }) {
 
     const riskScore = calculateRiskScore(result);
     const llm = result.llm_analysis ?? result;
-    const osint = result.osint_results ?? result.osint ?? {};
+    const osint = Array.isArray(result.osint_results)
+        ? (result.osint_results[0] ?? {})
+        : (result.osint_results ?? result.osint ?? {});
+    const geo = osint.ip_geolocation ?? osint.geolocation ?? {};
     const verdict = normalizeVerdict(llm.verdict ?? result.master_verdict ?? "UNKNOWN");
 
     // IOCs
@@ -200,12 +203,13 @@ export default function VerdictReveal({ result }) {
                         {[
                             { label: "VirusTotal", value: formatVirusTotalResult(osint.virustotal) },
                             { label: "Safe Browsing", value: formatSafeBrowsing(osint.safe_browsing) },
-                            { label: "Domain Age", value: formatDomainAge(osint.whois?.domain_age_days) },
+                            { label: "Domain Age", value: formatDomainAge(osint.domain_age?.age_days ?? osint.whois?.domain_age_days) },
                             { label: "Registrar", value: osint.whois?.registrar ?? "—" },
-                            { label: "Country", value: osint.geolocation?.country ?? "—" },
-                            { label: "ISP", value: osint.geolocation?.isp ?? "—" },
+                            { label: "Country", value: geo.country ?? "—" },
+                            { label: "ISP", value: geo.isp ?? "—" },
                             { label: "Risk Score", value: `${osint.risk_score ?? 0}/100` },
-                            { label: "Typosquatting", value: osint.typosquatting?.detected ? "⚠️ Detected" : "✓ Clean" },
+                            { label: "Signal Confidence", value: osint.confidence !== undefined ? `${osint.confidence}%` : null },
+                            { label: "Typosquatting", value: (osint.typosquatting?.is_typosquatting ?? osint.typosquatting?.detected) ? "⚠️ Detected" : "✓ Clean" },
                         ].filter((r) => r.value && r.value !== "—").map(({ label, value }) => (
                             <div key={label} style={{
                                 padding: "10px 12px",
@@ -222,6 +226,18 @@ export default function VerdictReveal({ result }) {
                             </div>
                         ))}
                     </div>
+
+                    {/* Unavailable / degraded checks */}
+                    {osint.checks_unavailable?.length > 0 && (
+                        <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: "0.68rem", color: colors.textMuted, fontFamily: "var(--font-mono)" }}>
+                                Unavailable Signals:
+                            </span>
+                            {osint.checks_unavailable.map((flag, i) => (
+                                <Badge key={i} variant="muted" size="xs">⚪ {flag}</Badge>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Risk flags */}
                     {osint.risk_flags?.length > 0 && (

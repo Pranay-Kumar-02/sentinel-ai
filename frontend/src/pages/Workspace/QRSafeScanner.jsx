@@ -8,8 +8,9 @@ import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+import { BASE_URL } from "../../utils/api";
 
-const BACKEND = "http://127.0.0.1:8000";
+const BACKEND = BASE_URL;
 
 const VERDICT_CONFIG = {
     MALICIOUS: { color: "red", icon: "🚨", label: "MALICIOUS", desc: "This QR code leads to a malicious URL. Do NOT visit it." },

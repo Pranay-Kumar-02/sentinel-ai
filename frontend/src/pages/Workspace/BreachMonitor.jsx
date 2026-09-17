@@ -8,8 +8,9 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "../../hooks/useTheme";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
+import { BASE_URL } from "../../utils/api";
 
-const BACKEND = "http://127.0.0.1:8000";
+const BACKEND = BASE_URL;
 
 // ── Data type icons ───────────────────────────────────────────────────────────
 const DATA_TYPE_ICONS = {
@@ -471,8 +472,17 @@ export default function BreachMonitor() {
                                     {[
                                         { label: "Breaches Found", value: breaches.length, color: colors.red, icon: "🔓" },
                                         { label: "Critical Severity", value: criticalCount, color: colors.red, icon: "⚠️" },
-                                        { label: "Accounts Exposed", value: totalAccounts > 0 ? (totalAccounts / 1000000).toFixed(1) + "M" : "—", color: colors.orange, icon: "👥" },
-                                        { label: "Oldest Breach", value: breaches.length > 0 ? new Date(Math.min(...breaches.map(b => new Date(b.BreachDate ?? "2099")))).getFullYear() : "—", color: colors.amber, icon: "📅" },
+                                        {
+                                            label: "Oldest Breach",
+                                            value: (() => {
+                                                const validYears = breaches
+                                                    .map(b => b.BreachDate ? new Date(b.BreachDate).getFullYear() : NaN)
+                                                    .filter(y => !isNaN(y) && y > 1990 && y < 2100);
+                                                return validYears.length > 0 ? Math.min(...validYears) : "—";
+                                            })(),
+                                            color: colors.amber,
+                                            icon: "📅"
+                                        },
                                     ].map((s, i) => (
                                         <motion.div
                                             key={s.label}

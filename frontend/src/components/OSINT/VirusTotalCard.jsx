@@ -12,20 +12,26 @@ export default function VirusTotalCard({ vt = null }) {
 
     if (!vt) return null;
 
+    const isPending = vt.verdict === "PENDING";
+    const hasError = Boolean(vt.error);
     const positives = vt.positives ?? vt.malicious ?? 0;
     const total = vt.total ?? vt.total_engines ?? 0;
     const pct = total > 0 ? (positives / total) * 100 : 0;
-    const isSafe = positives === 0;
+    const isSafe = !isPending && !hasError && positives === 0 && total > 0;
 
-    const statusColor = positives === 0 ? colors.green
-        : pct < 20 ? colors.amber
-            : pct < 50 ? colors.orange
-                : colors.red;
+    const statusColor = isPending ? colors.amber
+        : hasError ? colors.textMuted
+            : positives === 0 ? colors.green
+                : pct < 20 ? colors.amber
+                    : pct < 50 ? colors.orange
+                        : colors.red;
 
-    const statusGlow = positives === 0 ? colors.greenGlow
-        : pct < 20 ? colors.amberGlow
-            : pct < 50 ? colors.orangeGlow
-                : colors.redGlow;
+    const statusGlow = isPending ? colors.amberGlow
+        : hasError ? "transparent"
+            : positives === 0 ? colors.greenGlow
+                : pct < 20 ? colors.amberGlow
+                    : pct < 50 ? colors.orangeGlow
+                        : colors.redGlow;
 
     // Engine results if available
     const scans = vt.scans ?? vt.results ?? {};
@@ -60,7 +66,7 @@ export default function VirusTotalCard({ vt = null }) {
                     color: colors.text,
                     flex: 1,
                 }}>
-                    VirusTotal — {total} Engines
+                    VirusTotal {total > 0 ? `— ${total} Engines` : ""}
                 </span>
                 <span style={{
                     fontFamily: "var(--font-accent)",
@@ -69,9 +75,41 @@ export default function VirusTotalCard({ vt = null }) {
                     color: statusColor,
                     textShadow: `0 0 8px ${statusGlow}`,
                 }}>
-                    {positives}/{total}
+                    {isPending ? "SCAN PENDING" : hasError ? "UNAVAILABLE" : `${positives}/${total}`}
                 </span>
             </div>
+
+            {isPending ? (
+                <div style={{ padding: "16px" }}>
+                    <div style={{
+                        padding: "12px 14px",
+                        background: colors.amberSoft,
+                        border: `1px solid ${colors.amber}40`,
+                        borderRadius: 8,
+                        fontSize: "0.75rem",
+                        color: colors.amber,
+                        fontFamily: "var(--font-body)",
+                        lineHeight: 1.5,
+                    }}>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>⏳ Scan in Progress</div>
+                        {vt.note ?? "VirusTotal scan was newly submitted and is still running. Incomplete result — not confirmed clean."}
+                    </div>
+                </div>
+            ) : hasError ? (
+                <div style={{ padding: "16px" }}>
+                    <div style={{
+                        padding: "10px 14px",
+                        background: colors.bgSurface,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 8,
+                        fontSize: "0.74rem",
+                        color: colors.textMuted,
+                        fontFamily: "var(--font-mono)",
+                    }}>
+                        {vt.error}
+                    </div>
+                </div>
+            ) : (
 
             <div style={{ padding: "16px" }}>
                 {/* Detection ratio visual */}
@@ -180,6 +218,7 @@ export default function VirusTotalCard({ vt = null }) {
                     </div>
                 )}
             </div>
+            )}
         </motion.div>
     );
 }

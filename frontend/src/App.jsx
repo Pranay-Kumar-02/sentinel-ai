@@ -265,7 +265,10 @@ function AppShell() {
   const { cursorState } = useCursor();
   const [sidebarOpen] = useSidebarState();
 
-  const [path, setPath] = useState("/");
+  const [path, setPath] = useState(() => {
+    const current = window.location.pathname;
+    return ROUTES[current] ? current : "/";
+  });
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [particleMode, setParticleMode] = useState("idle");
   const [activeVerdict, setActiveVerdict] = useState(null);
@@ -275,7 +278,22 @@ function AppShell() {
   const navigate = useCallback((newPath) => {
     if (!ROUTES[newPath]) return;
     setPath(newPath);
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ path: newPath }, "", newPath);
+    }
     window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
+
+  // Listen to browser Back / Forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const current = window.location.pathname;
+      if (ROUTES[current]) {
+        setPath(current);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   // Expose globally for components that can't receive navigate as prop

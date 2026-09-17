@@ -124,7 +124,6 @@ export default function ModuleCards({ onNavigate, onOpenCopilot }) {
                 className="bento-grid"
                 style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(4, 1fr)",
                     gridAutoRows: "auto",
                     gridAutoFlow: "dense",
                     gap: 18,
@@ -136,7 +135,6 @@ export default function ModuleCards({ onNavigate, onOpenCopilot }) {
                     <div
                         key={module.id}
                         className={module.size === "large" ? "bento-large" : "bento-standard"}
-                        style={{ gridColumn: module.size === "large" ? "span 2" : "span 2" }}
                     >
                         <ModuleCard {...module} index={i} onClick={() => handleClick(module)} />
                     </div>
@@ -144,18 +142,22 @@ export default function ModuleCards({ onNavigate, onOpenCopilot }) {
             </div>
 
             <style>{`
-                @media (min-width: 1100px) {
-                    .bento-grid { grid-template-columns: repeat(4, 1fr); }
-                    .bento-large { grid-column: span 2 !important; }
-                    .bento-standard { grid-column: span 1 !important; }
+                .bento-grid {
+                    grid-template-columns: repeat(4, 1fr);
+                }
+                .bento-large {
+                    grid-column: span 2;
+                }
+                .bento-standard {
+                    grid-column: span 1;
                 }
                 @media (max-width: 1099px) and (min-width: 640px) {
-                    .bento-grid { grid-template-columns: repeat(2, 1fr); }
+                    .bento-grid { grid-template-columns: repeat(2, 1fr) !important; }
                     .bento-large { grid-column: span 2 !important; }
                     .bento-standard { grid-column: span 1 !important; }
                 }
                 @media (max-width: 639px) {
-                    .bento-grid { grid-template-columns: 1fr; }
+                    .bento-grid { grid-template-columns: 1fr !important; }
                     .bento-large, .bento-standard { grid-column: span 1 !important; }
                 }
             `}</style>

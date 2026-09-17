@@ -76,7 +76,7 @@ function setLastReadNow() {
     return now;
 }
 
-export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigate }) {
+export default function TopBar({ activePath = "/", sidebarOpen = true, onToggleSidebar, isMobile = false, onNavigate }) {
     const { colors, nav, gradients } = useTheme();
     const { setCursor, resetCursor } = useCursor();
     const [notifOpen, setNotifOpen] = useState(false);
@@ -188,21 +188,46 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
             style={{
                 position: "fixed",
                 top: 0,
-                left: sidebarOpen ? 240 : 64,
+                left: isMobile ? 0 : (sidebarOpen ? 240 : 64),
                 right: 0,
                 height: 64,
-                zIndex: 400,
+                zIndex: isMobile ? 600 : 400,
                 background: nav.bg,
                 backdropFilter: nav.blur,
                 WebkitBackdropFilter: nav.blur,
                 borderBottom: `1px solid ${colors.border}`,
                 display: "flex",
                 alignItems: "center",
-                padding: "0 20px 0 24px",
-                gap: 16,
+                padding: isMobile ? "0 12px" : "0 20px 0 24px",
+                gap: isMobile ? 8 : 16,
                 transition: "left 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
         >
+            {/* ── Mobile menu toggle ──────────────────────────── */}
+            {isMobile && (
+                <button
+                    onClick={() => onToggleSidebar?.()}
+                    aria-label="Toggle Navigation"
+                    aria-expanded={sidebarOpen}
+                    style={{
+                        background: colors.bgSurface,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 8,
+                        color: colors.text,
+                        fontSize: "1.1rem",
+                        width: 34,
+                        height: 34,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        flexShrink: 0,
+                    }}
+                >
+                    {sidebarOpen ? "✕" : "☰"}
+                </button>
+            )}
+
             {/* ── Page title ───────────────────────────────────── */}
             <AnimatePresence mode="wait">
                 <motion.div
@@ -217,33 +242,44 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                     <div>
                         <div style={{
                             fontFamily: "var(--font-display)",
-                            fontSize: "0.95rem",
+                            fontSize: isMobile ? "0.85rem" : "0.95rem",
                             fontWeight: 700,
                             color: colors.text,
                             lineHeight: 1.1,
                             letterSpacing: "-0.01em",
+                            maxWidth: isMobile ? 120 : "none",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                         }}>
                             {meta.title}
                         </div>
-                        <div style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "0.62rem",
-                            color: colors.textMuted,
-                            lineHeight: 1,
-                        }}>
-                            {meta.sub}
-                        </div>
+                        {!isMobile && (
+                            <div style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: "0.62rem",
+                                color: colors.textMuted,
+                                lineHeight: 1,
+                            }}>
+                                {meta.sub}
+                            </div>
+                        )}
                     </div>
                 </motion.div>
             </AnimatePresence>
 
-            {/* ── Divider ──────────────────────────────────────── */}
-            <div style={{ width: 1, height: 28, background: colors.border, flexShrink: 0 }} />
+            {/* ── Divider & Live status metrics (desktop only) ── */}
+            {!isMobile && (
+                <>
+                    <div style={{ width: 1, height: 28, background: colors.border, flexShrink: 0 }} />
+                    <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
+                        <LiveStatus />
+                    </div>
+                </>
+            )}
 
-            {/* ── Live status metrics ──────────────────────────── */}
-            <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
-                <LiveStatus />
-            </div>
+            {/* Spacer on mobile */}
+            {isMobile && <div style={{ flex: 1 }} />}
 
             {/* ── Right side actions ───────────────────────────── */}
             <div style={{
@@ -253,7 +289,7 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                 flexShrink: 0,
             }}>
                 {/* Theme switcher */}
-                <ThemeSwitcher compact />
+                <ThemeSwitcher compact isMobile={isMobile} />
 
                 {/* Divider */}
                 <div style={{ width: 1, height: 24, background: colors.border }} />
@@ -269,7 +305,7 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
-                        padding: "7px 16px",
+                        padding: isMobile ? "7px 10px" : "7px 16px",
                         background: gradients.primary,
                         border: "none",
                         borderRadius: 8,
@@ -297,7 +333,7 @@ export default function TopBar({ activePath = "/", sidebarOpen = true, onNavigat
                         }}
                     />
                     <span>🔍</span>
-                    <span>New Scan</span>
+                    {!isMobile && <span>New Scan</span>}
                 </motion.button>
 
                 {/* Notifications */}

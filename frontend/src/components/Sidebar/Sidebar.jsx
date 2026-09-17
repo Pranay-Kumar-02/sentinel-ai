@@ -10,6 +10,7 @@ import { useSidebarState } from "../../hooks/useLocalStorage";
 import { useKeyboard } from "../../hooks/useKeyboard";
 import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 import { useBackendHealth } from "../../hooks/useBackendHealth";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { BASE_URL } from "../../utils/api";
 import SidebarLogo from "./SidebarLogo";
 import NavItem from "./NavItem";
@@ -122,6 +123,7 @@ export default function Sidebar({ activePath = "/", onNavigate }) {
     const { colors, nav } = useTheme();
     const { setCursor, resetCursor } = useCursor();
     const [isOpen, toggleOpen] = useSidebarState();
+    const isMobile = useIsMobile();
     // Shared with TopBar via one underlying poller instead of each
     // component running its own independent /health check.
     const { alive: backendAlive } = useBackendHealth();
@@ -131,36 +133,67 @@ export default function Sidebar({ activePath = "/", onNavigate }) {
 
     const groups = ["main", "intel", "system"];
 
+    const handleNavigate = (path) => {
+        onNavigate?.(path);
+        if (isMobile && isOpen) {
+            toggleOpen();
+        }
+    };
+
     return (
-        <motion.aside
-            animate={{ width: isOpen ? 240 : 64 }}
-            transition={{ type: "spring", stiffness: 320, damping: 32, mass: 1 }}
-            style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                bottom: 0,
-                zIndex: 500,
-                background: nav.sidebar,
-                backdropFilter: nav.blur,
-                WebkitBackdropFilter: nav.blur,
-                borderRight: `1px solid ${colors.border}`,
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-                willChange: "width",
-            }}
-        >
-            {/* ── Logo ─────────────────────────────────────────── */}
-            <div style={{
-                padding: "20px 14px 16px",
-                borderBottom: `1px solid ${colors.border}`,
-            }}>
-                <SidebarLogo
-                    collapsed={!isOpen}
-                    onClick={() => onNavigate?.("/")}
+        <>
+            {isMobile && isOpen && (
+                <div
+                    onClick={() => toggleOpen()}
+                    aria-hidden="true"
+                    style={{
+                        position: "fixed",
+                        top: 64,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 495,
+                        background: "rgba(0, 0, 0, 0.65)",
+                        backdropFilter: "blur(4px)",
+                    }}
                 />
-            </div>
+            )}
+            <motion.aside
+                animate={isMobile
+                    ? { x: isOpen ? 0 : -280, width: 260 }
+                    : { x: 0, width: isOpen ? 240 : 64 }
+                }
+                transition={{ type: "spring", stiffness: 320, damping: 32, mass: 1 }}
+                style={{
+                    position: "fixed",
+                    top: isMobile ? 64 : 0,
+                    left: 0,
+                    bottom: 0,
+                    zIndex: 500,
+                    background: nav.sidebar,
+                    backdropFilter: nav.blur,
+                    WebkitBackdropFilter: nav.blur,
+                    borderRight: `1px solid ${colors.border}`,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    pointerEvents: isMobile && !isOpen ? "none" : "auto",
+                    visibility: isMobile && !isOpen ? "hidden" : "visible",
+                    willChange: "transform, width",
+                }}
+            >
+                {/* ── Logo (desktop only, since mobile topbar spans full width) ── */}
+                {!isMobile && (
+                    <div style={{
+                        padding: "20px 14px 16px",
+                        borderBottom: `1px solid ${colors.border}`,
+                    }}>
+                        <SidebarLogo
+                            collapsed={!isOpen}
+                            onClick={() => handleNavigate("/")}
+                        />
+                    </div>
+                )}
 
             {/* ── Nav groups ────────────────────────────────────── */}
             <nav style={{
@@ -216,10 +249,10 @@ export default function Sidebar({ activePath = "/", onNavigate }) {
                                     icon={item.icon}
                                     label={item.label}
                                     isActive={activePath === item.path}
-                                    collapsed={!isOpen}
+                                    collapsed={!isMobile && !isOpen}
                                     soon={item.soon}
                                     custom={gi * 3 + i}
-                                    onClick={() => onNavigate?.(item.path)}
+                                    onClick={() => handleNavigate(item.path)}
                                 />
                             ))}
                         </div>
@@ -348,5 +381,6 @@ export default function Sidebar({ activePath = "/", onNavigate }) {
                 </motion.button>
             </div>
         </motion.aside>
+        </>
     );
 }

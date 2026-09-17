@@ -229,7 +229,8 @@ export const STORAGE_KEYS = {
 
 /** Sidebar collapsed state */
 export function useSidebarState() {
-    return useLocalStorageToggle(STORAGE_KEYS.SIDEBAR_OPEN, true);
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    return useLocalStorageToggle(STORAGE_KEYS.SIDEBAR_OPEN, !isMobile);
 }
 
 /** Scan history array — last 50 scans */

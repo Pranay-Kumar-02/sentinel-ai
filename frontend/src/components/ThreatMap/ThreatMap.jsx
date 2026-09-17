@@ -260,9 +260,9 @@ export default function ThreatMap({ height = 480, maxNodes = 40 }) {
                     ref={globeEl}
                     width={width}
                     height={height}
-                    backgroundImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png"
-                    globeImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg"
-                    bumpImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
+                    backgroundImageUrl="https://cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png"
+                    globeImageUrl="https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg"
+                    bumpImageUrl="https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png"
                     showAtmosphere
                     atmosphereColor={colors.accent}
                     atmosphereAltitude={0.13}

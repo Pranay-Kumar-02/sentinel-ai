@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { cyber } from "./cyber";
+import { nebula } from "./nebula";
 import { midnight } from "./midnight";
 import { matrix } from "./matrix";
 import { emergency } from "./emergency";
@@ -13,10 +14,11 @@ import { enterprise } from "./enterprise";
 import { phantom } from "./phantom";
 
 // ── Named exports (direct access) ────────────────────────────────────────────
-export { cyber, midnight, matrix, emergency, arctic, aurora, enterprise, phantom };
+export { cyber, nebula, midnight, matrix, emergency, arctic, aurora, enterprise, phantom };
 
 // ── Theme Registry (ordered for UI picker) ───────────────────────────────────
 export const THEMES = [
+    nebula,
     cyber,
     midnight,
     matrix,

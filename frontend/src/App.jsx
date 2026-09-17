@@ -36,6 +36,7 @@ import { CursorProvider, useCursor } from "./context/CursorContext";
 import { useTheme } from "./hooks/useTheme";
 import { useSidebarState } from "./hooks/useLocalStorage";
 import { useSentinelShortcuts } from "./hooks/useKeyboard";
+import { useIsMobile } from "./hooks/useIsMobile";
 
 // ── Layout — eager (needed on first paint) ────────────────────────────────────
 import Background from "./components/Background";
@@ -263,7 +264,8 @@ function PageRenderer({ path, navigate, onOpenCopilot, onVerdict }) {
 function AppShell() {
   const { colors } = useTheme();
   const { cursorState } = useCursor();
-  const [sidebarOpen] = useSidebarState();
+  const [sidebarOpen, toggleSidebar] = useSidebarState();
+  const isMobile = useIsMobile();
 
   const [path, setPath] = useState(() => {
     const current = window.location.pathname;
@@ -376,11 +378,17 @@ function AppShell() {
       <Sidebar activePath={path} onNavigate={navigate} />
 
       {/* TopBar — fixed top, z-400 */}
-      <TopBar activePath={path} sidebarOpen={sidebarOpen} onNavigate={navigate} />
+      <TopBar
+        activePath={path}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={toggleSidebar}
+        isMobile={isMobile}
+        onNavigate={navigate}
+      />
 
       {/* Main content */}
       <motion.main
-        animate={{ marginLeft: sidebarOpen ? 240 : 64 }}
+        animate={{ marginLeft: isMobile ? 0 : (sidebarOpen ? 240 : 64) }}
         transition={{ type: "spring", stiffness: 320, damping: 32, mass: 1 }}
         style={{ position: "relative", zIndex: 1, minHeight: "100vh" }}
       >

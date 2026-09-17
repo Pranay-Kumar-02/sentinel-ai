@@ -11,6 +11,7 @@ import { useCursor, CURSOR_STATES } from "../../context/CursorContext";
 
 // Swatch color per theme id
 const SWATCHES = {
+    nebula: "#38bdf8",
     cyber: "#00d4ff",
     midnight: "#a855f7",
     matrix: "#00ff41",
@@ -21,7 +22,7 @@ const SWATCHES = {
     phantom: "#6366f1",
 };
 
-export default function ThemeSwitcher({ compact = false }) {
+export default function ThemeSwitcher({ compact = false, isMobile = false }) {
     const { themeId, themes, setTheme, isTransitioning } = useThemeSwitcher();
     const { colors } = useTheme();
     const { setCursor, resetCursor } = useCursor();
@@ -41,7 +42,7 @@ export default function ThemeSwitcher({ compact = false }) {
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
-                        padding: "6px 12px",
+                        padding: isMobile ? "6px 8px" : "6px 12px",
                         background: colors.bgSurface,
                         border: `1px solid ${colors.border}`,
                         borderRadius: 8,
@@ -60,7 +61,7 @@ export default function ThemeSwitcher({ compact = false }) {
                         boxShadow: `0 0 6px ${SWATCHES[themeId] ?? colors.accent}`,
                         flexShrink: 0,
                     }} />
-                    <span>{themes.find((t) => t.id === themeId)?.name ?? "Theme"}</span>
+                    {!isMobile && <span>{themes.find((t) => t.id === themeId)?.name ?? "Theme"}</span>}
                     <motion.span
                         animate={{ rotate: expanded ? 180 : 0 }}
                         transition={{ duration: 0.2 }}

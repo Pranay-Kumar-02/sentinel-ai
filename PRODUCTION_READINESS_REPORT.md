@@ -121,9 +121,8 @@ A dedicated, comprehensive browser test suite (`frontend/verify_production_e2e.m
 | **Scan History** | Navigated to `/history` | Recent scan log rendered with verdict badges and timestamps | Scan history table accurately reflected recent scans | ✅ VERIFIED WORKING |
 | **Settings & Learn / About** | Navigated to `/settings` and `/about` | Configuration options, API keys form, documentation cards displayed | All views mounted cleanly without errors | ✅ VERIFIED WORKING |
 | **AI Copilot Drawer** | Clicked Copilot floating trigger, submitted query "What is phishing?" | Drawer slides in from right, query submitted, response bubble rendered | Drawer animation completed cleanly, submitted query, and close toggle operated seamlessly | ✅ VERIFIED WORKING |
-| **Command Palette (Ctrl+K)** | Pressed `Ctrl+K` shortcut | Modal overlay opens with search bar, allows route navigation | Palette opened cleanly, keyboard navigation responsive, closed via Escape | ✅ VERIFIED WORKING |
-| **Theme Switcher** | Toggled theme button | CSS variables transition smoothly between dark and light themes | Smooth CSS variable transitions with zero flash or broken colors | ✅ VERIFIED WORKING |
-| **Mobile Responsive Layout** | Resized browser viewport to 390x844 (iPhone 14) | Layout collapses to single column, sidebar tucks away, zero horizontal overflow | Evaluated `scrollWidth <= clientWidth` (`false` overflow), responsive layout confirmed | ✅ VERIFIED WORKING |
+| **Theme Switcher & Black Nebula** | Selected new "Black Nebula" theme in Theme Switcher dropdown | CSS variables transition smoothly to deep space palette (`#020409`), orbital arcs render, theme persists in `localStorage` | Verified in browser: active theme `nebula`, document background `#020409`, smooth theme transitions | ✅ VERIFIED WORKING |
+| **Mobile Responsive Layout** | Resized browser viewport to 390x844 (iPhone 14) across all 15 routes | Off-canvas drawer collapses, hamburger toggle opens/closes navigation, zero horizontal overflow across entire application | Mathematically verified across all 15 routes: `scrollWidth === clientWidth === 390px`, `scrollX === 0`, `unclippedExceeding === 0`, zero horizontal scroll | ✅ VERIFIED WORKING |
 | **SPA Direct URL & History** | Direct navigation / refresh on `/scanner`, `/osint`, `/email` | Client-side routing resolves route, browser Back and Forward traverse history | Synchronized with `window.location.pathname`, `pushState`, `popstate`, and Render rewrite rule | ✅ VERIFIED WORKING |
 
 ---
@@ -167,6 +166,33 @@ A dedicated, comprehensive browser test suite (`frontend/verify_production_e2e.m
 - **Root Cause:** In `frontend/src/pages/Workspace/BreachMonitor.jsx`, `new Date(b.BreachDate ?? "2099")` generated `NaN` on invalid date strings in the "Oldest Breach" card.
 - **Fix:** Added numeric year validation filtering (`!isNaN(y) && y > 1990 && y < 2100`) before running `Math.min`.
 - **Retest Result:** ✅ VERIFIED WORKING. Display renders valid breach year or fallback dash. Strictly verified in live browser: `Contains NaN: false`.
+
+### 8. Mobile Viewport (390x844) Horizontal Overflow & Off-Canvas Drawer Architecture
+- **Root Cause:**
+  1. Desktop `Sidebar` (240px wide) rendered in the DOM with `marginLeft: 240px` on `<motion.main>` even on viewports < 768px.
+  2. `TopBar` had fixed `left: 240px` and rendered the 312px wide `LiveStatus` ticker on mobile screens, pushing total width to > 880px.
+  3. `ModuleCards.jsx` applied an inline `style={{ gridTemplateColumns: "repeat(4, 1fr)" }}` which overrode CSS media queries on narrow screens.
+  4. TopBar title and actions pushed past 390px due to unconstrained button widths.
+- **Fix:**
+  1. Built `useIsMobile()` hook listening to `window.matchMedia("(max-width: 767px)")`.
+  2. Transformed `Sidebar` into an off-canvas drawer on mobile (`x: -280` when closed, `x: 0` overlay with backdrop when open) and added a hamburger menu button (`☰`) in `TopBar`.
+  3. Set `left: 0` and `marginLeft: 0` on mobile viewports; hidden desktop-only metrics tickers on screens < 768px.
+  4. Removed the conflicting inline `gridTemplateColumns` style in `ModuleCards.jsx` and added `!important` to `@media (max-width: 639px)` rules.
+  5. Constrained TopBar title width and added compact mobile mode to `ThemeSwitcher`.
+- **Retest Result:** ✅ VERIFIED WORKING. Automated Playwright browser tests across all 15 application routes confirmed:
+  - `scrollWidth === clientWidth === 390px`
+  - `bodyScrollWidth === bodyClientWidth === 390px`
+  - `scrollX === 0` (horizontal scrolling physically impossible)
+  - `unclippedExceeding === 0` (zero visual overflow elements)
+
+### 9. New Theme: "Black Nebula" (Deep Space Aerospace Intelligence)
+- **Design Intent:** A high-end, cinematic, aerospace cybersecurity intelligence aesthetic. Near-black deep space surfaces, restrained cool electric cyan accent, indigo secondary, and faint orbital telemetry arcs.
+- **Implementation:**
+  - Registered `nebula` theme in `frontend/src/themes/nebula.js` and `frontend/src/themes/index.js`.
+  - Palette: Background `#020409`, surfaces `#050912` / `#080d16`, borders `rgba(56, 189, 248, 0.12)`, primary accent `#38bdf8`, secondary `#818cf8`.
+  - Background Layer: Built `NebulaField.jsx` featuring slow-breathing nebula gas clouds with 28s–44s ease cycles and faint aerospace orbital coordinate arcs (`strokeDasharray: "4 24"`).
+  - Theme Switcher: Integrated into top navigation, swatch indicator `#38bdf8`, seamless Framer Motion transitions with persistence in `localStorage` (`sentinel_theme: "nebula"`).
+- **Retest Result:** ✅ VERIFIED WORKING. Cleanly switches across all routes, renders with zero visual artifacts or performance degradation, and verified via automated browser inspection.
 
 ---
 

@@ -405,10 +405,13 @@ export default function HeroSection({ onNavigate }) {
     const { setCursor, resetCursor } = useCursor();
 
     return (
-        <section style={{
-            minHeight: "100vh", display: "flex", alignItems: "center",
-            position: "relative", padding: "100px 48px 60px", overflow: "hidden",
-        }}>
+        <section
+            className="hero-section"
+            style={{
+                minHeight: "100vh", display: "flex", alignItems: "center",
+                position: "relative", padding: "100px 48px 60px", overflow: "hidden",
+            }}
+        >
             <div style={{ position: "absolute", inset: 0, zIndex: 0, overflow: "hidden" }}>
                 <motion.div
                     animate={{ x: [0, 60, -30, 0], y: [0, -40, 30, 0], scale: [1, 1.15, 1.05, 1] }}
@@ -601,6 +604,10 @@ export default function HeroSection({ onNavigate }) {
                     .hero-grid {
                         grid-template-columns: 1fr !important;
                         text-align: center;
+                        gap: 36px !important;
+                    }
+                    .hero-section {
+                        padding: 85px 16px 50px !important;
                     }
                 }
             `}</style>

@@ -14,6 +14,7 @@ import { useGridVisible } from "../../hooks/useLocalStorage";
 
 import GradientMesh from "./GradientMesh";
 import MatrixRain from "./MatrixRain";
+import NebulaField from "./NebulaField";
 import HexGrid from "./HexGrid";
 import ParticleField from "./ParticleField";
 import ThreatPulse from "./ThreatPulse";
@@ -85,6 +86,9 @@ function Background({ mode = "idle", verdictLevel = null }) {
 
             {/* Layer 2b — Matrix rain (matrix theme only) */}
             <MatrixRain />
+
+            {/* Layer 2c — Black Nebula deep space atmosphere */}
+            <NebulaField />
 
             {/* Layer 3 — Hex neural grid */}
             {gridVisible && <HexGrid />}
